@@ -1,0 +1,25 @@
+{
+  "name": "@aws-boilerplate/functions",
+  "version": "1.0.0",
+  "description": "Lambda functions for AWS boilerplate",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "test": "jest",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.496.0",
+    "@aws-sdk/lib-dynamodb": "^3.496.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.132",
+    "@types/jest": "^29.5.11",
+    "@types/node": "^18.19.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.1",
+    "typescript": "^5.3.3"
+  }
+}
