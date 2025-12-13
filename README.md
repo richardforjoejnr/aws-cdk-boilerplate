@@ -170,7 +170,9 @@ See **[packages/web-app/README.md](./packages/web-app/README.md)** for more deta
 - `npm run deploy:dev` - Deploy to development environment
 - `npm run deploy:test` - Deploy to test environment
 - `npm run deploy:prod` - Deploy to production environment
-- `npm run destroy` - Destroy the current stack
+- `npm run destroy:dev` - Destroy dev environment (all stacks)
+- `npm run destroy:test` - Destroy test environment (all stacks)
+- `npm run destroy:prod` - Destroy prod environment (all stacks)
 
 ### Web Application
 - `npm run webapp:dev` - Run web app development server
@@ -324,6 +326,39 @@ This boilerplate deploys:
 - Separate web app deployment workflow
 - Manual destroy workflow with safety confirmations
 
+## Cleanup & Destroy
+
+To completely remove all AWS resources for an environment:
+
+```bash
+# Destroy dev environment
+npm run destroy:dev
+
+# Destroy test environment
+npm run destroy:test
+
+# Destroy prod environment
+npm run destroy:prod
+```
+
+This will delete all stacks in the specified environment:
+- `{stage}-aws-boilerplate-database` - DynamoDB tables
+- `{stage}-aws-boilerplate-lambda` - Lambda functions
+- `{stage}-aws-boilerplate-appsync` - GraphQL API
+- `{stage}-aws-boilerplate-step-functions` - State machines
+- `{stage}-aws-boilerplate-web-app` - S3 bucket and CloudFront (if deployed)
+
+**Note:** Production resources have deletion protection enabled. You may need to manually disable protection for DynamoDB tables before destroying.
+
+**If you encounter orphaned resources:**
+```bash
+npm run cleanup:dev    # Clean up failed dev stacks
+npm run cleanup:test   # Clean up failed test stacks
+npm run cleanup:prod   # Clean up failed prod stacks
+```
+
+See **[TROUBLESHOOTING.md](./TROUBLESHOOTING.md)** for detailed cleanup procedures.
+
 ## Documentation
 
 - **[QUICK_START.md](./QUICK_START.md)** - 5-minute setup guide
@@ -331,6 +366,7 @@ This boilerplate deploys:
 - **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Comprehensive deployment guide
 - **[CI_CD_SETUP.md](./CI_CD_SETUP.md)** - GitHub Actions pipeline configuration
 - **[DEPLOYMENT_SUCCESS.md](./DEPLOYMENT_SUCCESS.md)** - Latest deployment documentation
+- **[TROUBLESHOOTING.md](./TROUBLESHOOTING.md)** - Common issues and solutions
 
 ## Cost Estimate
 
