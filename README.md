@@ -34,10 +34,11 @@ npm run deploy:dev
 - **DynamoDB** - NoSQL database with streams and GSIs
 - **Monorepo** - Organized with npm workspaces
 - **Multi-Environment** - Support for dev, test, and prod environments
-- **CI/CD Pipeline** - AWS CodePipeline for automated deployments
+- **CI/CD Pipeline** - GitHub Actions for automated deployments
 - **Lambda Functions** - ES Modules with optimized bundling
 - **Step Functions** - State machine orchestration
 - **ESM** - Pure ES Modules architecture
+- **Testing** - Comprehensive test suite with Jest
 
 ## Project Structure
 
@@ -191,7 +192,6 @@ All infrastructure is defined using AWS CDK in TypeScript:
 - **Lambda Stack** - Lambda functions and related resources
 - **AppSync Stack** - GraphQL API with multiple data sources
 - **Step Functions Stack** - State machines and workflows
-- **Pipeline Stack** - CodePipeline for CI/CD
 
 ### Deploying Changes
 
@@ -239,10 +239,11 @@ This boilerplate deploys:
 - Error handling and retries
 - CloudWatch Logs
 
-### CI/CD Pipeline (prod only)
-- GitHub source integration
-- Multi-stage deployment (dev → test → prod)
-- Manual approval gates
+### CI/CD Pipeline (GitHub Actions)
+- Automated deployment on push to main/develop/feature branches
+- Branch-based environment deployment (main→prod, develop→test, feature/*→dev)
+- Quality gates: linting, testing, and type checking
+- Manual destroy workflow with safety confirmations
 
 ## Documentation
 
