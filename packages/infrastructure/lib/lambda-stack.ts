@@ -22,16 +22,23 @@ export class LambdaStack extends cdk.Stack {
     const removalPolicy = isProdLike ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY;
 
     // Log retention based on environment
-    const logRetention = isProdLike
+    const logRetentionDays = isProdLike
       ? logs.RetentionDays.ONE_MONTH
       : logs.RetentionDays.ONE_WEEK;
+
+    // Create log group for Lambda function
+    const logGroup = new logs.LogGroup(this, 'HelloWorldLogGroup', {
+      logGroupName: `/aws/lambda/${stage}-hello-world`,
+      retention: logRetentionDays,
+      removalPolicy,
+    });
 
     // Hello World Lambda Function
     this.helloWorldFunction = new nodejs.NodejsFunction(this, 'HelloWorldFunction', {
       functionName: `${stage}-hello-world`,
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'handler',
-      entry: path.join(__dirname, '../../../functions/src/hello-world/index.ts'),
+      entry: path.join(__dirname, '../../functions/src/hello-world/index.ts'),
       bundling: {
         format: nodejs.OutputFormat.ESM,
         minify: isProdLike,
@@ -48,13 +55,9 @@ export class LambdaStack extends cdk.Stack {
       },
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
-      logRetention,
+      logGroup,
       description: 'Simple hello world Lambda function',
     });
-
-    // Apply removal policy to log groups
-    const logGroup = this.helloWorldFunction.node.findChild('LogGroup') as logs.LogGroup;
-    logGroup.applyRemovalPolicy(removalPolicy);
 
     // Output the function ARN
     new cdk.CfnOutput(this, 'HelloWorldFunctionArn', {
