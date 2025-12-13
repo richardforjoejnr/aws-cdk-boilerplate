@@ -2,7 +2,6 @@ import * as cdk from 'aws-cdk-lib';
 import * as appsync from 'aws-cdk-lib/aws-appsync';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -23,21 +22,6 @@ export class AppSyncStack extends cdk.Stack {
 
     const stage = this.node.tryGetContext('stage') as string;
     const isProdLike = this.node.tryGetContext('isProdLike') as boolean;
-
-    // Removal policy based on environment
-    const removalPolicy = isProdLike ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY;
-
-    // Log retention based on environment
-    const logRetention = isProdLike
-      ? logs.RetentionDays.ONE_MONTH
-      : logs.RetentionDays.ONE_WEEK;
-
-    // Create CloudWatch Log Group for AppSync
-    const logGroup = new logs.LogGroup(this, 'AppSyncLogGroup', {
-      logGroupName: `/aws/appsync/${stage}-api`,
-      retention: logRetention,
-      removalPolicy,
-    });
 
     // Create the AppSync API
     this.api = new appsync.GraphqlApi(this, 'Api', {
@@ -60,7 +44,6 @@ export class AppSyncStack extends cdk.Stack {
       logConfig: {
         fieldLogLevel: isProdLike ? appsync.FieldLogLevel.ERROR : appsync.FieldLogLevel.ALL,
         excludeVerboseContent: isProdLike,
-        retention: logRetention,
       },
     });
 

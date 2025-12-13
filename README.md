@@ -166,13 +166,22 @@ State machines are defined in `packages/infrastructure/lib/step-functions-stack.
 
 ## CI/CD Pipeline
 
-The pipeline automatically:
+Automated deployment using GitHub Actions:
 
-1. Builds and tests code on every push
-2. Deploys to environments based on branch:
-   - Feature branches → dev environment
-   - `main` branch → test environment
-   - Tagged releases → prod environment
+### Branch → Environment Mapping
+- `feature/*` branches → **dev** environment
+- `develop` branch → **test** environment
+- `main` branch → **prod** environment
+- Pull requests → **test only** (no deployment)
+
+### Pipeline Features
+1. **Automatic deployment** on every push
+2. **Quality gates**: Linting, testing, and type checking
+3. **Environment protection**: Manual approval for production
+4. **Deployment artifacts**: CDK outputs saved for 30 days
+5. **Rollback support**: Manual destroy workflow
+
+See **[CI_CD_SETUP.md](./CI_CD_SETUP.md)** for complete setup instructions.
 
 ## Infrastructure as Code
 
@@ -240,6 +249,8 @@ This boilerplate deploys:
 - **[QUICK_START.md](./QUICK_START.md)** - 5-minute setup guide
 - **[AWS_ACCESS_SETUP.md](./AWS_ACCESS_SETUP.md)** - AWS credentials and IAM setup
 - **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Comprehensive deployment guide
+- **[CI_CD_SETUP.md](./CI_CD_SETUP.md)** - GitHub Actions pipeline configuration
+- **[DEPLOYMENT_SUCCESS.md](./DEPLOYMENT_SUCCESS.md)** - Latest deployment documentation
 
 ## Cost Estimate
 

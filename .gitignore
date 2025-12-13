@@ -15,6 +15,7 @@ build/
 *.d.ts
 *.d.ts.map
 *.js.map
+*.tsbuildinfo
 !jest.config.js
 
 # IDEs

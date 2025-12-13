@@ -44,7 +44,7 @@ const lambdaStack = new LambdaStack(app, `${stackPrefix}-lambda`, {
 });
 
 // AppSync Stack - GraphQL API
-const appSyncStack = new AppSyncStack(app, `${stackPrefix}-appsync`, {
+new AppSyncStack(app, `${stackPrefix}-appsync`, {
   env,
   description: `AppSync GraphQL API for ${stage} environment`,
   stackName: `${stackPrefix}-appsync`,
@@ -53,7 +53,7 @@ const appSyncStack = new AppSyncStack(app, `${stackPrefix}-appsync`, {
 });
 
 // Step Functions Stack - Contains state machines
-const stepFunctionsStack = new StepFunctionsStack(app, `${stackPrefix}-step-functions`, {
+new StepFunctionsStack(app, `${stackPrefix}-step-functions`, {
   env,
   description: `Step Functions state machines for ${stage} environment`,
   stackName: `${stackPrefix}-step-functions`,

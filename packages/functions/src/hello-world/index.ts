@@ -34,7 +34,7 @@ export const handler: Handler<HelloWorldEvent, HelloWorldResponse> = async (
     body: JSON.stringify({
       greeting,
       timestamp: new Date().toISOString(),
-      requestId: context.requestId,
+      requestId: context.awsRequestId,
     }),
     message: greeting,
   };

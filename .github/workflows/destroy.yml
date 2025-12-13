@@ -1,0 +1,93 @@
+name: Destroy AWS Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: 'Environment to destroy'
+        required: true
+        type: choice
+        options:
+          - dev
+          - test
+          - prod
+      confirm:
+        description: 'Type "DESTROY" to confirm'
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  NODE_VERSION: '18'
+  AWS_REGION: 'us-east-1'
+
+jobs:
+  validate:
+    name: Validate Destruction Request
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate confirmation
+        run: |
+          if [[ "${{ github.event.inputs.confirm }}" != "DESTROY" ]]; then
+            echo "❌ Confirmation failed. You must type 'DESTROY' to proceed."
+            exit 1
+          fi
+          echo "✅ Confirmation validated"
+
+      - name: Warn about production
+        if: github.event.inputs.stage == 'prod'
+        run: |
+          echo "⚠️ WARNING: You are about to destroy the PRODUCTION environment!"
+          echo "This action is irreversible and will delete all production data."
+          sleep 10
+
+  destroy:
+    name: Destroy ${{ github.event.inputs.stage }} Environment
+    runs-on: ubuntu-latest
+    needs: validate
+    environment:
+      name: ${{ github.event.inputs.stage }}-destroy
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Destroy infrastructure
+        env:
+          STAGE: ${{ github.event.inputs.stage }}
+        run: |
+          echo "🗑️ Destroying $STAGE environment..."
+          cd packages/infrastructure
+          npx cdk destroy --all --force
+
+      - name: Destruction summary
+        run: |
+          echo "## Destruction Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Successfully destroyed **${{ github.event.inputs.stage }}** environment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Destroyed Stacks" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ github.event.inputs.stage }}-aws-boilerplate-appsync\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ github.event.inputs.stage }}-aws-boilerplate-step-functions\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ github.event.inputs.stage }}-aws-boilerplate-lambda\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ github.event.inputs.stage }}-aws-boilerplate-database\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ All data in these stacks has been permanently deleted." >> $GITHUB_STEP_SUMMARY
