@@ -2,10 +2,36 @@
 
 A production-ready TypeScript boilerplate for AWS Lambda and Step Functions with Infrastructure as Code using AWS CDK.
 
+## 🚀 Quick Start
+
+**First time here?** Start with these guides:
+
+1. **[QUICK_START.md](./QUICK_START.md)** - Get deployed in 5 minutes
+2. **[AWS_ACCESS_SETUP.md](./AWS_ACCESS_SETUP.md)** - Configure AWS credentials and IAM permissions
+3. **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Comprehensive deployment guide
+
+### TL;DR
+
+```bash
+# 1. Configure AWS credentials
+aws configure
+
+# 2. Install dependencies
+npm install
+
+# 3. Bootstrap CDK (one-time)
+cd packages/infrastructure && npx cdk bootstrap && cd ../..
+
+# 4. Deploy
+npm run deploy:dev
+```
+
 ## Features
 
 - **TypeScript** - Full type safety across infrastructure and application code
 - **AWS CDK** - Infrastructure as Code with AWS Cloud Development Kit
+- **AppSync** - GraphQL API with DynamoDB and Lambda resolvers
+- **DynamoDB** - NoSQL database with streams and GSIs
 - **Monorepo** - Organized with npm workspaces
 - **Multi-Environment** - Support for dev, test, and prod environments
 - **CI/CD Pipeline** - AWS CodePipeline for automated deployments
@@ -31,8 +57,35 @@ A production-ready TypeScript boilerplate for AWS Lambda and Step Functions with
 
 - Node.js >= 18.0.0
 - npm >= 9.0.0
-- AWS CLI configured with appropriate credentials
-- AWS CDK CLI: `npm install -g aws-cdk`
+- **AWS Account** with credentials configured
+- AWS CLI installed
+- AWS CDK CLI (optional): `npm install -g aws-cdk`
+
+## AWS Access Setup
+
+**Need help configuring AWS access?** See [AWS_ACCESS_SETUP.md](./AWS_ACCESS_SETUP.md)
+
+### Quick AWS Setup
+
+```bash
+# Run the automated setup checker
+./scripts/setup-aws-access.sh
+
+# Or manually configure
+aws configure
+```
+
+You'll need:
+- **AWS Access Key ID** (create in IAM console)
+- **AWS Secret Access Key**
+- **Default region** (e.g., us-east-1)
+
+See [AWS_ACCESS_SETUP.md](./AWS_ACCESS_SETUP.md) for:
+- How to create IAM users
+- Required IAM permissions (custom policy included)
+- Multi-account setup
+- SSO configuration
+- Troubleshooting
 
 ## Getting Started
 
@@ -47,12 +100,24 @@ npm install
 ```bash
 cd packages/infrastructure
 npx cdk bootstrap
+cd ../..
 ```
 
 ### 3. Deploy to Development
 
 ```bash
 npm run deploy:dev
+```
+
+### 4. Test Your Deployment
+
+After deployment, test the Lambda function:
+
+```bash
+aws lambda invoke \
+  --function-name dev-hello-world \
+  --payload '{"name": "World"}' \
+  response.json && cat response.json
 ```
 
 ## Available Scripts
@@ -113,9 +178,11 @@ The pipeline automatically:
 
 All infrastructure is defined using AWS CDK in TypeScript:
 
-- **Pipeline Stack** - CodePipeline for CI/CD
+- **Database Stack** - DynamoDB tables with streams and GSIs
 - **Lambda Stack** - Lambda functions and related resources
+- **AppSync Stack** - GraphQL API with multiple data sources
 - **Step Functions Stack** - State machines and workflows
+- **Pipeline Stack** - CodePipeline for CI/CD
 
 ### Deploying Changes
 
@@ -135,6 +202,61 @@ npm run deploy:prod
 - Environment variable management
 - Secrets stored in AWS Secrets Manager
 - CloudWatch logging for audit trails
+
+## What Gets Deployed
+
+This boilerplate deploys:
+
+### DynamoDB
+- Main table with partition key (pk) and sort key (sk)
+- 2 Global Secondary Indexes (GSI1, GSI2)
+- DynamoDB Streams enabled
+- Auto-scaling in production
+
+### Lambda Functions
+- `hello-world` - Simple greeting function
+- `dynamodb-stream-handler` - Processes DynamoDB stream events
+- Node.js 18 runtime with ES Modules
+- CloudWatch Logs with retention
+
+### AppSync GraphQL API
+- API Key and IAM authorization
+- CRUD operations: createItem, getItem, updateItem, deleteItem, listItems
+- Lambda resolver for custom queries
+- X-Ray tracing (production)
+
+### Step Functions
+- State machine with Lambda integration
+- Error handling and retries
+- CloudWatch Logs
+
+### CI/CD Pipeline (prod only)
+- GitHub source integration
+- Multi-stage deployment (dev → test → prod)
+- Manual approval gates
+
+## Documentation
+
+- **[QUICK_START.md](./QUICK_START.md)** - 5-minute setup guide
+- **[AWS_ACCESS_SETUP.md](./AWS_ACCESS_SETUP.md)** - AWS credentials and IAM setup
+- **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Comprehensive deployment guide
+
+## Cost Estimate
+
+Development environment with light usage:
+- DynamoDB: Pay-per-request (~$0)
+- Lambda: Free tier (1M requests/month)
+- AppSync: Free tier (250K queries/month)
+- Step Functions: Free tier (4K transitions/month)
+
+**Estimated: < $1/month for testing**
+
+## Cleanup
+
+```bash
+# Remove all resources
+STAGE=dev npm run destroy
+```
 
 ## Contributing
 
