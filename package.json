@@ -16,10 +16,17 @@
     "deploy:dev": "STAGE=dev npm run deploy",
     "deploy:test": "STAGE=test npm run deploy",
     "deploy:prod": "STAGE=prod npm run deploy",
+    "deploy:webapp:dev": "./scripts/deploy-webapp.sh dev",
+    "deploy:webapp:test": "./scripts/deploy-webapp.sh test",
+    "deploy:webapp:prod": "./scripts/deploy-webapp.sh prod",
     "destroy": "cd packages/infrastructure && npm run destroy",
     "cleanup:dev": "./scripts/cleanup-failed-stacks.sh dev",
     "cleanup:test": "./scripts/cleanup-failed-stacks.sh test",
     "cleanup:prod": "./scripts/cleanup-failed-stacks.sh prod",
+    "webapp:config:dev": "./scripts/configure-webapp.sh dev",
+    "webapp:config:test": "./scripts/configure-webapp.sh test",
+    "webapp:config:prod": "./scripts/configure-webapp.sh prod",
+    "webapp:dev": "cd packages/web-app && npm run dev",
     "prepare": "husky install || true"
   },
   "devDependencies": {
