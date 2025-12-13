@@ -1,6 +1,12 @@
 import { handler } from '../hello-world/index.js';
 import type { Context } from 'aws-lambda';
 
+interface ResponseBody {
+  greeting: string;
+  timestamp: string;
+  requestId: string;
+}
+
 describe('hello-world Lambda function', () => {
   const mockContext: Context = {
     callbackWaitsForEmptyEventLoop: false,
@@ -24,7 +30,7 @@ describe('hello-world Lambda function', () => {
     expect(result.statusCode).toBe(200);
     expect(result.message).toBe('Hello World!');
 
-    const body = JSON.parse(result.body);
+    const body = JSON.parse(result.body) as ResponseBody;
     expect(body.greeting).toBe('Hello World!');
     expect(body.requestId).toBe('test-request-id');
     expect(body.timestamp).toBeDefined();
@@ -37,7 +43,7 @@ describe('hello-world Lambda function', () => {
     expect(result.statusCode).toBe(200);
     expect(result.message).toBe('Hello Claude!');
 
-    const body = JSON.parse(result.body);
+    const body = JSON.parse(result.body) as ResponseBody;
     expect(body.greeting).toBe('Hello Claude!');
   });
 
@@ -45,7 +51,7 @@ describe('hello-world Lambda function', () => {
     const event = { name: 'Test' };
     const result = await handler(event, mockContext);
 
-    const body = JSON.parse(result.body);
+    const body = JSON.parse(result.body) as ResponseBody;
     const timestamp = new Date(body.timestamp);
 
     expect(timestamp).toBeInstanceOf(Date);
@@ -61,7 +67,7 @@ describe('hello-world Lambda function', () => {
     const event = {};
     const result = await handler(event, customContext);
 
-    const body = JSON.parse(result.body);
+    const body = JSON.parse(result.body) as ResponseBody;
     expect(body.requestId).toBe('custom-request-id-123');
   });
 });
