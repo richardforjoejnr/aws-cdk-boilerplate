@@ -32,6 +32,7 @@ npm run deploy:dev
 - **AWS CDK** - Infrastructure as Code with AWS Cloud Development Kit
 - **AppSync** - GraphQL API with DynamoDB and Lambda resolvers
 - **DynamoDB** - NoSQL database with streams and GSIs
+- **React Web App** - Amplify-powered frontend with CRUD operations
 - **Monorepo** - Organized with npm workspaces
 - **Multi-Environment** - Support for dev, test, and prod environments
 - **CI/CD Pipeline** - GitHub Actions for automated deployments
@@ -48,8 +49,10 @@ npm run deploy:dev
 │   ├── infrastructure/    # CDK infrastructure code
 │   │   ├── bin/          # CDK app entry point
 │   │   └── lib/          # CDK stacks and constructs
-│   └── functions/        # Lambda functions
-│       └── src/          # Function source code
+│   ├── functions/        # Lambda functions
+│   │   └── src/          # Function source code
+│   └── web-app/          # React frontend application
+│       └── src/          # React components and logic
 ├── ci/                   # CI/CD pipeline definitions
 └── scripts/              # Build and deployment scripts
 ```
@@ -121,8 +124,45 @@ aws lambda invoke \
   response.json && cat response.json
 ```
 
+### 5. Run the Web Application (Optional)
+
+The boilerplate includes a React web application that demonstrates CRUD operations with the deployed AppSync API.
+
+**Option A: Run Locally**
+
+```bash
+# Configure the web app with your deployed environment
+npm run webapp:config:dev
+
+# Start the development server
+npm run webapp:dev
+```
+
+The web app will be available at `http://localhost:3000`.
+
+**Option B: Deploy to AWS (S3 + CloudFront)**
+
+```bash
+# Deploy web app to AWS
+npm run deploy:webapp:dev
+```
+
+This will:
+1. Configure the web app with your AppSync API
+2. Build the React app
+3. Deploy to S3 with CloudFront CDN
+4. Output the public URL
+
+The web app features:
+- Create new items in DynamoDB
+- View all items in a table
+- Delete items with confirmation
+
+See **[packages/web-app/README.md](./packages/web-app/README.md)** for more details.
+
 ## Available Scripts
 
+### Infrastructure
 - `npm run build` - Build all packages
 - `npm run test` - Run tests across all packages
 - `npm run lint` - Lint TypeScript files
@@ -130,7 +170,23 @@ aws lambda invoke \
 - `npm run deploy:dev` - Deploy to development environment
 - `npm run deploy:test` - Deploy to test environment
 - `npm run deploy:prod` - Deploy to production environment
-- `npm run destroy` - Destroy the current stack
+- `npm run destroy:dev` - Destroy dev environment (all stacks)
+- `npm run destroy:test` - Destroy test environment (all stacks)
+- `npm run destroy:prod` - Destroy prod environment (all stacks)
+
+### Web Application
+- `npm run webapp:dev` - Run web app development server
+- `npm run webapp:config:dev` - Configure web app with dev environment
+- `npm run webapp:config:test` - Configure web app with test environment
+- `npm run webapp:config:prod` - Configure web app with prod environment
+- `npm run deploy:webapp:dev` - Deploy web app to dev (S3 + CloudFront)
+- `npm run deploy:webapp:test` - Deploy web app to test (S3 + CloudFront)
+- `npm run deploy:webapp:prod` - Deploy web app to prod (S3 + CloudFront)
+
+### Cleanup
+- `npm run cleanup:dev` - Clean up orphaned resources in dev
+- `npm run cleanup:test` - Clean up orphaned resources in test
+- `npm run cleanup:prod` - Clean up orphaned resources in prod
 
 ## Environments
 
@@ -175,12 +231,27 @@ Automated deployment using GitHub Actions:
 - `main` branch → **prod** environment
 - Pull requests → **test only** (no deployment)
 
+### Workflows
+
+**1. Infrastructure Deployment (`.github/workflows/deploy.yml`)**
+- Triggered on push to main/develop/feature branches
+- Deploys: Database, Lambda, AppSync, Step Functions
+- Automatic on every commit
+
+**2. Web App Deployment (`.github/workflows/deploy-webapp.yml`)**
+- Triggered on:
+  - Manual workflow dispatch (choose environment)
+  - Push to main/develop/feature with changes to `packages/web-app/**`
+- Deploys: S3 bucket + CloudFront distribution with built React app
+- Outputs public URL
+
 ### Pipeline Features
 1. **Automatic deployment** on every push
 2. **Quality gates**: Linting, testing, and type checking
 3. **Environment protection**: Manual approval for production
 4. **Deployment artifacts**: CDK outputs saved for 30 days
 5. **Rollback support**: Manual destroy workflow
+6. **Separate web app pipeline**: Deploy frontend independently
 
 See **[CI_CD_SETUP.md](./CI_CD_SETUP.md)** for complete setup instructions.
 
@@ -192,6 +263,7 @@ All infrastructure is defined using AWS CDK in TypeScript:
 - **Lambda Stack** - Lambda functions and related resources
 - **AppSync Stack** - GraphQL API with multiple data sources
 - **Step Functions Stack** - State machines and workflows
+- **Web App Stack** (Optional) - S3 bucket + CloudFront distribution for React app
 
 ### Deploying Changes
 
@@ -239,11 +311,53 @@ This boilerplate deploys:
 - Error handling and retries
 - CloudWatch Logs
 
+### Web App (Optional)
+- React 18 application with TypeScript
+- S3 bucket for static hosting
+- CloudFront distribution for global CDN
+- Automatic invalidation on deployment
+- HTTPS enabled
+- AWS Amplify for GraphQL integration
+
 ### CI/CD Pipeline (GitHub Actions)
 - Automated deployment on push to main/develop/feature branches
 - Branch-based environment deployment (main→prod, develop→test, feature/*→dev)
 - Quality gates: linting, testing, and type checking
+- Separate web app deployment workflow
 - Manual destroy workflow with safety confirmations
+
+## Cleanup & Destroy
+
+To completely remove all AWS resources for an environment:
+
+```bash
+# Destroy dev environment
+npm run destroy:dev
+
+# Destroy test environment
+npm run destroy:test
+
+# Destroy prod environment
+npm run destroy:prod
+```
+
+This will delete all stacks in the specified environment:
+- `{stage}-aws-boilerplate-database` - DynamoDB tables
+- `{stage}-aws-boilerplate-lambda` - Lambda functions
+- `{stage}-aws-boilerplate-appsync` - GraphQL API
+- `{stage}-aws-boilerplate-step-functions` - State machines
+- `{stage}-aws-boilerplate-web-app` - S3 bucket and CloudFront (if deployed)
+
+**Note:** Production resources have deletion protection enabled. You may need to manually disable protection for DynamoDB tables before destroying.
+
+**If you encounter orphaned resources:**
+```bash
+npm run cleanup:dev    # Clean up failed dev stacks
+npm run cleanup:test   # Clean up failed test stacks
+npm run cleanup:prod   # Clean up failed prod stacks
+```
+
+See **[TROUBLESHOOTING.md](./TROUBLESHOOTING.md)** for detailed cleanup procedures.
 
 ## Documentation
 
@@ -252,6 +366,7 @@ This boilerplate deploys:
 - **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Comprehensive deployment guide
 - **[CI_CD_SETUP.md](./CI_CD_SETUP.md)** - GitHub Actions pipeline configuration
 - **[DEPLOYMENT_SUCCESS.md](./DEPLOYMENT_SUCCESS.md)** - Latest deployment documentation
+- **[TROUBLESHOOTING.md](./TROUBLESHOOTING.md)** - Common issues and solutions
 
 ## Cost Estimate
 

@@ -6,6 +6,7 @@ import { DatabaseStack } from '../lib/database-stack.js';
 import { LambdaStack } from '../lib/lambda-stack.js';
 import { AppSyncStack } from '../lib/appsync-stack.js';
 import { StepFunctionsStack } from '../lib/step-functions-stack.js';
+import { WebAppStack } from '../lib/web-app-stack.js';
 
 const app = new cdk.App();
 
@@ -59,6 +60,17 @@ new StepFunctionsStack(app, `${stackPrefix}-step-functions`, {
   stackName: `${stackPrefix}-step-functions`,
   helloWorldFunction: lambdaStack.helloWorldFunction,
 });
+
+// Web App Stack - Static website hosting (S3 + CloudFront)
+// Only deploy if DEPLOY_WEBAPP=true or deploying specific stack
+const deployWebApp = process.env.DEPLOY_WEBAPP === 'true' || process.argv.includes('web-app');
+if (deployWebApp) {
+  new WebAppStack(app, `${stackPrefix}-web-app`, {
+    env,
+    description: `Web application hosting for ${stage} environment`,
+    stackName: `${stackPrefix}-web-app`,
+  });
+}
 
 // Pipeline Stack - AWS CodePipeline (disabled - using GitHub Actions instead)
 // GitHub Actions provides better integration and is already configured in .github/workflows/
