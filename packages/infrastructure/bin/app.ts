@@ -62,8 +62,12 @@ new StepFunctionsStack(app, `${stackPrefix}-step-functions`, {
 });
 
 // Web App Stack - Static website hosting (S3 + CloudFront)
-// Only deploy if DEPLOY_WEBAPP=true or deploying specific stack
-const deployWebApp = process.env.DEPLOY_WEBAPP === 'true' || process.argv.includes('web-app');
+// Deploy if:
+// - DEPLOY_WEBAPP=true (explicit deployment)
+// - 'web-app' in arguments (targeting specific stack)
+// - 'destroy' in arguments (need to include in destroy operation)
+const isDestroy = process.argv.includes('destroy');
+const deployWebApp = process.env.DEPLOY_WEBAPP === 'true' || process.argv.includes('web-app') || isDestroy;
 if (deployWebApp) {
   new WebAppStack(app, `${stackPrefix}-web-app`, {
     env,

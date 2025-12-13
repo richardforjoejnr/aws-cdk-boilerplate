@@ -62,6 +62,22 @@ cleanup_lambda() {
     fi
 }
 
+# Function to empty and delete S3 bucket
+cleanup_s3_bucket() {
+    local BUCKET_NAME=$1
+
+    if aws s3 ls "s3://$BUCKET_NAME" --region "$REGION" &>/dev/null; then
+        echo "🪣 Found S3 bucket: $BUCKET_NAME"
+        echo "   🗑️  Emptying bucket..."
+        aws s3 rm "s3://$BUCKET_NAME" --recursive --region "$REGION" &>/dev/null || true
+        echo "   🗑️  Deleting bucket..."
+        aws s3 rb "s3://$BUCKET_NAME" --region "$REGION" &>/dev/null || true
+        echo "   ✅ S3 bucket cleanup initiated"
+    else
+        echo "✅ No S3 bucket: $BUCKET_NAME"
+    fi
+}
+
 # Function to delete failed CloudFormation stacks
 cleanup_stack() {
     local STACK_NAME=$1
@@ -86,6 +102,7 @@ cleanup_table "${STAGE}-main-table"
 cleanup_lambda "${STAGE}-hello-world"
 cleanup_log_group "/aws/lambda/${STAGE}-hello-world"
 cleanup_log_group "/aws/appsync/apis"  # AppSync logs (if any)
+cleanup_s3_bucket "${STAGE}-aws-boilerplate-webapp"
 echo ""
 
 # Cleanup failed stacks
@@ -95,6 +112,7 @@ cleanup_stack "${STAGE}-aws-boilerplate-database"
 cleanup_stack "${STAGE}-aws-boilerplate-lambda"
 cleanup_stack "${STAGE}-aws-boilerplate-appsync"
 cleanup_stack "${STAGE}-aws-boilerplate-step-functions"
+cleanup_stack "${STAGE}-aws-boilerplate-web-app"
 echo ""
 
 echo "🎉 Cleanup complete for stage: $STAGE"
