@@ -1,4 +1,4 @@
-import { Handler, Context } from 'aws-lambda';
+import type { Context } from 'aws-lambda';
 
 export interface HelloWorldEvent {
   name?: string;
@@ -15,7 +15,7 @@ export interface HelloWorldResponse {
  * Hello World Lambda function
  * Simple function that returns a greeting message
  */
-export const handler: Handler<HelloWorldEvent, HelloWorldResponse> = async (
+export const handler = async (
   event: HelloWorldEvent,
   context: Context
 ): Promise<HelloWorldResponse> => {

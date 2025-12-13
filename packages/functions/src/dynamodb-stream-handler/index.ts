@@ -1,4 +1,4 @@
-import { DynamoDBStreamHandler, DynamoDBRecord } from 'aws-lambda';
+import type { DynamoDBStreamEvent, DynamoDBRecord, Context } from 'aws-lambda';
 import { unmarshall } from '@aws-sdk/util-dynamodb';
 import { AttributeValue } from '@aws-sdk/client-dynamodb';
 
@@ -6,16 +6,12 @@ import { AttributeValue } from '@aws-sdk/client-dynamodb';
  * DynamoDB Stream Handler
  * Processes records from DynamoDB streams
  */
-export const handler: DynamoDBStreamHandler = async (event) => {
+export const handler = async (event: DynamoDBStreamEvent, _context: Context): Promise<void> => {
   console.log('DynamoDB Stream event received:', JSON.stringify(event, null, 2));
 
   for (const record of event.Records) {
     await processRecord(record);
   }
-
-  return {
-    batchItemFailures: [],
-  };
 };
 
 async function processRecord(record: DynamoDBRecord): Promise<void> {
