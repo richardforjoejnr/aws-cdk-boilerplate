@@ -117,6 +117,14 @@ jobs:
           aws sts get-caller-identity
           echo "Deploying web app to: ${{ needs.determine-environment.outputs.stage }}"
 
+
+      - name: Deploy infrastructure stacks
+        env:
+          STAGE: ${{ needs.determine-environment.outputs.stage }}
+        run: |
+          cd packages/infrastructure
+          npx cdk deploy --all --require-approval never
+
       - name: Configure web app
         env:
           STAGE: ${{ needs.determine-environment.outputs.stage }}
