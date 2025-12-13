@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import 'source-map-support/register';
 import * as cdk from 'aws-cdk-lib';
-import { PipelineStack } from '../lib/pipeline-stack.js';
+// import { PipelineStack } from '../lib/pipeline-stack.js'; // Not needed - using GitHub Actions instead
 import { DatabaseStack } from '../lib/database-stack.js';
 import { LambdaStack } from '../lib/lambda-stack.js';
 import { AppSyncStack } from '../lib/appsync-stack.js';
@@ -60,14 +60,15 @@ new StepFunctionsStack(app, `${stackPrefix}-step-functions`, {
   helloWorldFunction: lambdaStack.helloWorldFunction,
 });
 
-// Pipeline Stack - CI/CD pipeline (only for production account)
-if (stage === 'prod') {
-  new PipelineStack(app, `${stackPrefix}-pipeline`, {
-    env,
-    description: 'CI/CD pipeline for multi-environment deployment',
-    stackName: `${stackPrefix}-pipeline`,
-  });
-}
+// Pipeline Stack - AWS CodePipeline (disabled - using GitHub Actions instead)
+// GitHub Actions provides better integration and is already configured in .github/workflows/
+// if (stage === 'prod') {
+//   new PipelineStack(app, `${stackPrefix}-pipeline`, {
+//     env,
+//     description: 'CI/CD pipeline for multi-environment deployment',
+//     stackName: `${stackPrefix}-pipeline`,
+//   });
+// }
 
 // Add tags to all stacks
 cdk.Tags.of(app).add('Project', 'AWS-Boilerplate');
