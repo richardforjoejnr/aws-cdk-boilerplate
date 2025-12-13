@@ -341,12 +341,12 @@ npm run destroy:test
 npm run destroy:prod
 ```
 
-This will delete all stacks in the specified environment:
+This will delete **all stacks** in the specified environment:
 - `{stage}-aws-boilerplate-database` - DynamoDB tables
 - `{stage}-aws-boilerplate-lambda` - Lambda functions
 - `{stage}-aws-boilerplate-appsync` - GraphQL API
 - `{stage}-aws-boilerplate-step-functions` - State machines
-- `{stage}-aws-boilerplate-web-app` - S3 bucket and CloudFront (if deployed)
+- `{stage}-aws-boilerplate-web-app` - S3 bucket and CloudFront (automatically included if exists)
 
 **Note:** Production resources have deletion protection enabled. You may need to manually disable protection for DynamoDB tables before destroying.
 

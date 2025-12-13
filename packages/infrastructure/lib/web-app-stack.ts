@@ -3,6 +3,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -50,6 +51,19 @@ export class WebAppStack extends cdk.Stack {
 
     // Grant read access to CloudFront
     this.bucket.grantRead(originAccessIdentity);
+
+    // Explicitly add a bucket policy for OAI (fixes 403 AccessDenied)
+    this.bucket.addToResourcePolicy(
+      new iam.PolicyStatement({
+        actions: ['s3:GetObject'],
+        resources: [this.bucket.arnForObjects('*')],
+        principals: [
+          new iam.CanonicalUserPrincipal(
+            originAccessIdentity.cloudFrontOriginAccessIdentityS3CanonicalUserId
+          ),
+        ],
+      })
+    );
 
     // CloudFront distribution
     this.distribution = new cloudfront.Distribution(this, 'WebAppDistribution', {
