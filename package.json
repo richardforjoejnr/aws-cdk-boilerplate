@@ -17,6 +17,9 @@
     "deploy:test": "STAGE=test npm run deploy",
     "deploy:prod": "STAGE=prod npm run deploy",
     "destroy": "cd packages/infrastructure && npm run destroy",
+    "cleanup:dev": "./scripts/cleanup-failed-stacks.sh dev",
+    "cleanup:test": "./scripts/cleanup-failed-stacks.sh test",
+    "cleanup:prod": "./scripts/cleanup-failed-stacks.sh prod",
     "prepare": "husky install || true"
   },
   "devDependencies": {
