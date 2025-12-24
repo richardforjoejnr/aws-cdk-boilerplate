@@ -1,9 +1,14 @@
 // Amplify configuration for AWS AppSync
 // Dynamically configured from environment variables
 
-const apiUrl = import.meta.env.VITE_GRAPHQL_API_URL;
-const apiKey = import.meta.env.VITE_GRAPHQL_API_KEY;
-const region = import.meta.env.VITE_AWS_REGION || 'us-east-1';
+function getEnvString(key: string, fallback = ''): string {
+  const value = (import.meta.env as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : fallback;
+}
+
+const apiUrl: string = getEnvString('VITE_GRAPHQL_API_URL');
+const apiKey: string = getEnvString('VITE_GRAPHQL_API_KEY');
+const region: string = getEnvString('VITE_AWS_REGION', 'us-east-1');
 
 if (!apiUrl || !apiKey) {
   console.error('Missing required environment variables:');
@@ -12,7 +17,15 @@ if (!apiUrl || !apiKey) {
   throw new Error('Amplify configuration is missing required environment variables. Please run: npm run webapp:config:dev');
 }
 
-export const amplifyConfig = {
+interface AmplifyConfig {
+  aws_project_region: string;
+  aws_appsync_graphqlEndpoint: string;
+  aws_appsync_region: string;
+  aws_appsync_authenticationType: string;
+  aws_appsync_apiKey: string;
+}
+
+export const amplifyConfig: AmplifyConfig = {
   aws_project_region: region,
   aws_appsync_graphqlEndpoint: apiUrl,
   aws_appsync_region: region,
