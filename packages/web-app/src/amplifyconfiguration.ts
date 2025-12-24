@@ -2,8 +2,11 @@
 // Dynamically configured from environment variables
 
 function getEnvString(key: keyof ImportMetaEnv, fallback = ''): string {
-  const env = import.meta.env as ImportMetaEnv;
-  return typeof env[key] === 'string' ? env[key] : fallback;
+  const raw = (import.meta.env as Record<string, unknown>)[key];
+  if (typeof raw === 'string') {
+    return raw;
+  }
+  return fallback;
 }
 
 const apiUrl: string = getEnvString('VITE_GRAPHQL_API_URL');
