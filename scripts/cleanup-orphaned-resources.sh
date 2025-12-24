@@ -68,7 +68,9 @@ check_and_delete_dynamodb_table() {
 
             echo -e "${GREEN}  ✓ Table deleted successfully${NC}"
         else
-            echo -e "${GREEN}  ✓ Table is managed by CloudFormation stack: ${stack_name}${NC}"
+            echo -e "${YELLOW}  ⚠️  Table is managed by CloudFormation stack: ${stack_name}${NC}"
+            echo -e "${YELLOW}  ⚠️  This may indicate drift. Run drift detection to verify.${NC}"
+            echo -e "${BLUE}  → To fix drift: ./scripts/fix-cloudformation-drift.sh $(basename "$stack_name" | cut -d'-' -f1)${NC}"
         fi
     else
         echo -e "${GREEN}  ✓ Table does not exist${NC}"

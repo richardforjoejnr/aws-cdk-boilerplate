@@ -135,7 +135,16 @@ export class AppSyncStack extends cdk.Stack {
     dynamoDbDataSource.createResolver('DeleteItemResolver', {
       typeName: 'Mutation',
       fieldName: 'deleteItem',
-      requestMappingTemplate: appsync.MappingTemplate.dynamoDbDeleteItem('id', 'id'),
+      requestMappingTemplate: appsync.MappingTemplate.fromString(`
+        {
+          "version": "2017-02-28",
+          "operation": "DeleteItem",
+          "key": {
+            "pk": $util.dynamodb.toDynamoDBJson($ctx.args.id),
+            "sk": $util.dynamodb.toDynamoDBJson("ITEM")
+          }
+        }
+      `),
       responseMappingTemplate: appsync.MappingTemplate.dynamoDbResultItem(),
     });
 

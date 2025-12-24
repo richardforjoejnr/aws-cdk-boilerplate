@@ -39,6 +39,12 @@
     "validate:dev": "./scripts/validate-deployment.sh dev",
     "validate:test": "./scripts/validate-deployment.sh test",
     "validate:prod": "./scripts/validate-deployment.sh prod",
+    "drift:check:dev": "./scripts/fix-cloudformation-drift.sh dev",
+    "drift:check:test": "./scripts/fix-cloudformation-drift.sh test",
+    "drift:check:prod": "./scripts/fix-cloudformation-drift.sh prod",
+    "drift:fix:dev": "./scripts/fix-drift-and-redeploy.sh dev",
+    "drift:fix:test": "./scripts/fix-drift-and-redeploy.sh test",
+    "drift:fix:prod": "./scripts/fix-drift-and-redeploy.sh prod",
     "prepare": "husky install || true"
   },
   "devDependencies": {

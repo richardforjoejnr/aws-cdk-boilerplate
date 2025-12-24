@@ -45,5 +45,10 @@ VITE_GRAPHQL_API_ID=${API_ID}
 ENVEOF
 
 echo -e "${GREEN}✓ Configuration saved to ${ENV_FILE}${NC}"
+
+# Also create .env file for Vite to use during build
+cp "$ENV_FILE" "packages/web-app/.env"
+echo -e "${GREEN}✓ Copied to packages/web-app/.env for Vite${NC}"
+
 echo -e "${YELLOW}API URL:${NC} $API_URL"
 echo -e "${YELLOW}API Key:${NC} $API_KEY"

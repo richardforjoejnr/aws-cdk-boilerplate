@@ -48,6 +48,13 @@ echo -e "${GREEN}✓ Using AWS Account: ${ACCOUNT_ID}${NC}\n"
 if [[ "$SKIP_CLEANUP" != "--skip-cleanup" ]]; then
     echo -e "${BLUE}📋 Step 1: Running pre-deployment cleanup...${NC}"
     ./scripts/cleanup-orphaned-resources.sh "$STAGE"
+
+    echo -e "\n${BLUE}🔍 Step 1.5: Detecting CloudFormation drift...${NC}"
+    if ./scripts/fix-cloudformation-drift.sh "$STAGE" 2>/dev/null; then
+        echo -e "${GREEN}✓ No drift detected${NC}\n"
+    else
+        echo -e "${YELLOW}⚠️  Drift detected - will be fixed during deployment${NC}\n"
+    fi
 else
     echo -e "${YELLOW}⚠️  Skipping cleanup (--skip-cleanup flag provided)${NC}\n"
 fi
@@ -119,8 +126,9 @@ STATE_MACHINE_ARN=$(aws cloudformation describe-stacks \
     --query "Stacks[0].Outputs[?OutputKey=='StateMachineArn'].OutputValue" \
     --output text 2>/dev/null || echo "N/A")
 
-# Get WebApp outputs if deployed
-if [[ "$DEPLOY_WEBAPP" == "--webapp" ]]; then
+# Get WebApp outputs if the stack exists (regardless of whether we deployed it this time)
+# Check if web app stack exists
+if aws cloudformation describe-stacks --stack-name "${STACK_PREFIX}-web-app" --region "$REGION" >/dev/null 2>&1; then
     WEBAPP_URL=$(aws cloudformation describe-stacks \
         --stack-name "${STACK_PREFIX}-web-app" \
         --query "Stacks[0].Outputs[?OutputKey=='WebAppUrl'].OutputValue" \
@@ -135,6 +143,10 @@ if [[ "$DEPLOY_WEBAPP" == "--webapp" ]]; then
         --stack-name "${STACK_PREFIX}-web-app" \
         --query "Stacks[0].Outputs[?OutputKey=='S3BucketName'].OutputValue" \
         --output text 2>/dev/null || echo "N/A")
+
+    HAS_WEBAPP=true
+else
+    HAS_WEBAPP=false
 fi
 
 echo -e "${GREEN}"
@@ -149,7 +161,7 @@ echo -e "${YELLOW}GraphQL API URL:${NC}     $API_URL"
 echo -e "${YELLOW}GraphQL API Key:${NC}     $API_KEY"
 echo -e "${YELLOW}State Machine:${NC}       $STATE_MACHINE_ARN"
 
-if [[ "$DEPLOY_WEBAPP" == "--webapp" ]]; then
+if [ "$HAS_WEBAPP" = true ]; then
     echo -e "${YELLOW}WebApp URL:${NC}          $WEBAPP_URL"
     echo -e "${YELLOW}CloudFront Dist ID:${NC}  $DIST_ID"
     echo -e "${YELLOW}S3 Bucket:${NC}           $S3_BUCKET"
@@ -170,7 +182,7 @@ cat > "$OUTPUT_FILE" << EOF
   "lambdaName": "$LAMBDA_NAME",
   "apiUrl": "$API_URL",
   "apiKey": "$API_KEY",
-  "stateMachineArn": "$STATE_MACHINE_ARN"$(if [[ "$DEPLOY_WEBAPP" == "--webapp" ]]; then echo ",
+  "stateMachineArn": "$STATE_MACHINE_ARN"$(if [ "$HAS_WEBAPP" = true ]; then echo ",
   \"webappUrl\": \"$WEBAPP_URL\",
   \"distributionId\": \"$DIST_ID\",
   \"s3BucketName\": \"$S3_BUCKET\""; fi)
