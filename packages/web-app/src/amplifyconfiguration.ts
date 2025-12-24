@@ -1,9 +1,10 @@
 // Amplify configuration for AWS AppSync
 // Dynamically configured from environment variables
 
-function getEnvString(key: string, fallback = ''): string {
-  const value = (import.meta.env as Record<string, unknown>)[key];
-  return typeof value === 'string' ? value : fallback;
+function getEnvString(key: keyof ImportMetaEnv, fallback = ''): string {
+  const raw = import.meta.env[key];
+  const value: string = typeof raw === 'string' ? raw : fallback;
+  return value;
 }
 
 const apiUrl: string = getEnvString('VITE_GRAPHQL_API_URL');
