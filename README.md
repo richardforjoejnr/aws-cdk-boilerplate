@@ -162,14 +162,31 @@ See **[packages/web-app/README.md](./packages/web-app/README.md)** for more deta
 
 ## Available Scripts
 
+### 🚀 Smart Deployment (Recommended)
+
+**NEW:** These commands automatically handle orphaned resources and failed stacks!
+
+- `npm run deploy:dev` - Deploy to dev with automatic cleanup ✨
+- `npm run deploy:test` - Deploy to test with automatic cleanup ✨
+- `npm run deploy:prod` - Deploy to prod with automatic cleanup ✨
+- `npm run deploy:dev:webapp` - Deploy dev with web app included ✨
+- `npm run deploy:test:webapp` - Deploy test with web app included ✨
+- `npm run deploy:prod:webapp` - Deploy prod with web app included ✨
+
+**What the smart deployment does:**
+1. ✅ Validates AWS credentials
+2. ✅ Cleans up orphaned resources (DynamoDB tables, CloudWatch logs)
+3. ✅ Removes failed CloudFormation stacks
+4. ✅ Builds all packages
+5. ✅ Deploys infrastructure
+6. ✅ Generates deployment summary with all endpoints
+7. ✅ Saves outputs to `.deployment-outputs-{stage}.json`
+
 ### Infrastructure
 - `npm run build` - Build all packages
 - `npm run test` - Run tests across all packages
 - `npm run lint` - Lint TypeScript files
 - `npm run format` - Format code with Prettier
-- `npm run deploy:dev` - Deploy to development environment
-- `npm run deploy:test` - Deploy to test environment
-- `npm run deploy:prod` - Deploy to production environment
 - `npm run destroy:dev` - Destroy dev environment (all stacks)
 - `npm run destroy:test` - Destroy test environment (all stacks)
 - `npm run destroy:prod` - Destroy prod environment (all stacks)
@@ -179,14 +196,22 @@ See **[packages/web-app/README.md](./packages/web-app/README.md)** for more deta
 - `npm run webapp:config:dev` - Configure web app with dev environment
 - `npm run webapp:config:test` - Configure web app with test environment
 - `npm run webapp:config:prod` - Configure web app with prod environment
-- `npm run deploy:webapp:dev` - Deploy web app to dev (S3 + CloudFront)
-- `npm run deploy:webapp:test` - Deploy web app to test (S3 + CloudFront)
-- `npm run deploy:webapp:prod` - Deploy web app to prod (S3 + CloudFront)
+- `npm run deploy:webapp:dev` - Deploy only web app to dev (S3 + CloudFront)
+- `npm run deploy:webapp:test` - Deploy only web app to test (S3 + CloudFront)
+- `npm run deploy:webapp:prod` - Deploy only web app to prod (S3 + CloudFront)
 
-### Cleanup
-- `npm run cleanup:dev` - Clean up orphaned resources in dev
-- `npm run cleanup:test` - Clean up orphaned resources in test
-- `npm run cleanup:prod` - Clean up orphaned resources in prod
+### 🧹 Cleanup & Validation
+- `npm run cleanup:orphaned:dev` - Clean up orphaned resources (DynamoDB, logs)
+- `npm run cleanup:orphaned:test` - Clean up orphaned resources
+- `npm run cleanup:orphaned:prod` - Clean up orphaned resources
+- `npm run cleanup:failed:dev` - Remove failed CloudFormation stacks
+- `npm run cleanup:failed:test` - Remove failed CloudFormation stacks
+- `npm run cleanup:failed:prod` - Remove failed CloudFormation stacks
+- `npm run validate:dev` - Validate deployment health
+- `npm run validate:test` - Validate deployment health
+- `npm run validate:prod` - Validate deployment health
+
+See **[scripts/README.md](./scripts/README.md)** for detailed documentation on all deployment scripts.
 
 ## Environments
 

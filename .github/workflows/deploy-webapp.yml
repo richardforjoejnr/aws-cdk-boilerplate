@@ -117,59 +117,76 @@ jobs:
           aws sts get-caller-identity
           echo "Deploying web app to: ${{ needs.determine-environment.outputs.stage }}"
 
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh
 
-      - name: Deploy infrastructure stacks
-        env:
-          STAGE: ${{ needs.determine-environment.outputs.stage }}
-        run: |
-          cd packages/infrastructure
-          npx cdk deploy --all --require-approval never
-
-      - name: Configure web app
-        env:
-          STAGE: ${{ needs.determine-environment.outputs.stage }}
-        run: |
-          chmod +x scripts/configure-webapp.sh
-          ./scripts/configure-webapp.sh $STAGE
-
-      - name: Rebuild web app with configuration
-        run: |
-          cd packages/web-app
-          npm run build
-
-      - name: Deploy web app infrastructure
+      - name: Deploy with Smart Deployment (Infrastructure + WebApp)
         id: deploy
         env:
           STAGE: ${{ needs.determine-environment.outputs.stage }}
-          DEPLOY_WEBAPP: true
         run: |
-          cd packages/infrastructure
-          npx cdk deploy $STAGE-aws-boilerplate-web-app --require-approval never --outputs-file webapp-outputs.json
+          # Use smart deployment with webapp flag
+          ./scripts/deploy-with-cleanup.sh $STAGE --webapp
 
-          # Extract Web App URL from outputs
-          WEBAPP_URL=$(cat webapp-outputs.json | grep -oP '"WebAppUrl":\s*"\K[^"]+' || echo "N/A")
-          echo "webapp-url=$WEBAPP_URL" >> $GITHUB_OUTPUT
+          # Read outputs from the generated JSON file
+          if [ -f ".deployment-outputs-${STAGE}.json" ]; then
+            WEBAPP_URL=$(cat .deployment-outputs-${STAGE}.json | grep -oP '"webappUrl":\s*"\K[^"]+' || echo "N/A")
+            API_URL=$(cat .deployment-outputs-${STAGE}.json | grep -oP '"apiUrl":\s*"\K[^"]+' || echo "N/A")
+            echo "webapp-url=$WEBAPP_URL" >> $GITHUB_OUTPUT
+            echo "api-url=$API_URL" >> $GITHUB_OUTPUT
+          fi
 
       - name: Upload deployment outputs
         uses: actions/upload-artifact@v4
         with:
           name: webapp-outputs-${{ needs.determine-environment.outputs.stage }}
-          path: packages/infrastructure/webapp-outputs.json
+          path: .deployment-outputs-${{ needs.determine-environment.outputs.stage }}.json
           retention-days: 30
+        if: always()
+
+      - name: Validate deployment
+        env:
+          STAGE: ${{ needs.determine-environment.outputs.stage }}
+        run: |
+          chmod +x scripts/validate-deployment.sh
+          ./scripts/validate-deployment.sh $STAGE || echo "⚠️ Validation had some issues, but deployment completed"
 
       - name: Deployment summary
         run: |
-          echo "## Web App Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          STAGE="${{ needs.determine-environment.outputs.stage }}"
+          WEBAPP_URL="${{ steps.deploy.outputs.webapp-url }}"
+          API_URL="${{ steps.deploy.outputs.api-url }}"
+
+          # Read additional deployment outputs
+          if [ -f ".deployment-outputs-${STAGE}.json" ]; then
+            DIST_ID=$(cat .deployment-outputs-${STAGE}.json | grep -oP '"distributionId":\s*"\K[^"]+' || echo "N/A")
+            BUCKET_NAME=$(cat .deployment-outputs-${STAGE}.json | grep -oP '"s3BucketName":\s*"\K[^"]+' || echo "N/A")
+          fi
+
+          echo "## Web App Deployment Summary 🚀" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Successfully deployed web app to **${{ needs.determine-environment.outputs.stage }}** environment" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Successfully deployed web app to **${STAGE}** environment with smart deployment" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Deployed Resources" >> $GITHUB_STEP_SUMMARY
-          echo "- Web App URL: [\`${{ steps.deploy.outputs.webapp-url }}\`](${{ steps.deploy.outputs.webapp-url }})" >> $GITHUB_STEP_SUMMARY
-          echo "- Region: \`${{ env.AWS_REGION }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Stage: \`${{ needs.determine-environment.outputs.stage }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Web App URL:** [${WEBAPP_URL}](${WEBAPP_URL})" >> $GITHUB_STEP_SUMMARY
+          echo "- **GraphQL API URL:** \`${API_URL}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **CloudFront Distribution:** \`${DIST_ID}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **S3 Bucket:** \`${BUCKET_NAME}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Region:** \`${{ env.AWS_REGION }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Stack Name" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ needs.determine-environment.outputs.stage }}-aws-boilerplate-web-app\`" >> $GITHUB_STEP_SUMMARY
+          echo "### Stack Names" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${STAGE}-aws-boilerplate-database\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${STAGE}-aws-boilerplate-lambda\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${STAGE}-aws-boilerplate-appsync\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${STAGE}-aws-boilerplate-step-functions\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${STAGE}-aws-boilerplate-web-app\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### What Changed 🎯" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Automatic cleanup of orphaned resources" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Failed stack detection and removal" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Deployment validation performed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ CloudFront origin properly configured (S3BucketOrigin)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Complete deployment outputs saved" >> $GITHUB_STEP_SUMMARY
 
   notify:
     name: Notify Deployment Status

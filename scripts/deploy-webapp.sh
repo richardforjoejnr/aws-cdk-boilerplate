@@ -1,43 +1,39 @@
 #!/bin/bash
 
-# Deploy Web App to S3 + CloudFront
-# Usage: ./scripts/deploy-webapp.sh [dev|test|prod]
+# Deploy web app to specific environment
+# Usage: ./deploy-webapp.sh [dev|test|prod]
 
 set -e
 
 STAGE=${1:-dev}
 REGION=${AWS_REGION:-us-east-1}
 
-echo "🚀 Deploying web app for stage: $STAGE"
-echo "Region: $REGION"
-echo ""
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
 
-# Step 1: Configure the web app with AppSync API details
-echo "Step 1: Configuring web app..."
-echo "=============================="
-./scripts/configure-webapp.sh "$STAGE"
-echo ""
+echo -e "${BLUE}🚀 Deploying web app to ${STAGE} environment${NC}\n"
 
-# Step 2: Build the web app
-echo "Step 2: Building web app..."
-echo "============================"
+# Build web app
+echo -e "${YELLOW}📦 Building web app...${NC}"
 cd packages/web-app
 npm run build
 cd ../..
-echo "✅ Web app built successfully"
-echo ""
 
-# Step 3: Deploy infrastructure with web app
-echo "Step 3: Deploying infrastructure..."
-echo "===================================="
-export DEPLOY_WEBAPP=true
-STAGE=$STAGE npm run deploy
-echo ""
+# Deploy with CDK
+echo -e "${YELLOW}☁️  Deploying to AWS...${NC}"
+cd packages/infrastructure
+STAGE=$STAGE DEPLOY_WEBAPP=true npx cdk deploy ${STAGE}-aws-boilerplate-web-app --require-approval never
+cd ../..
 
-echo "🎉 Web app deployment complete!"
-echo ""
-echo "To get the web app URL:"
-echo "  aws cloudformation describe-stacks \\"
-echo "    --stack-name ${STAGE}-aws-boilerplate-web-app \\"
-echo "    --query 'Stacks[0].Outputs[?OutputKey==\`WebAppUrl\`].OutputValue' \\"
-echo "    --output text"
+echo -e "${GREEN}✅ Web app deployed successfully!${NC}"
+
+# Get the CloudFront URL
+WEBAPP_URL=$(aws cloudformation describe-stacks \
+    --stack-name "${STAGE}-aws-boilerplate-web-app" \
+    --query "Stacks[0].Outputs[?OutputKey=='WebAppUrl'].OutputValue" \
+    --output text 2>/dev/null)
+
+echo -e "${BLUE}🌐 WebApp URL: ${WEBAPP_URL}${NC}"

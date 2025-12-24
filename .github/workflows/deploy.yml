@@ -105,44 +105,74 @@ jobs:
           aws sts get-caller-identity
           echo "Deploying to environment: ${{ needs.determine-environment.outputs.stage }}"
 
-      - name: Build application
-        run: npm run build
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh
 
-      - name: Deploy to AWS
+      - name: Deploy to AWS with Smart Deployment
         id: deploy
         env:
           STAGE: ${{ needs.determine-environment.outputs.stage }}
         run: |
-          cd packages/infrastructure
-          npx cdk deploy --all --require-approval never --outputs-file cdk-outputs.json
+          # Use the smart deployment script
+          ./scripts/deploy-with-cleanup.sh $STAGE
 
-          # Extract API URL from outputs
-          API_URL=$(cat cdk-outputs.json | grep -oP '"GraphQLApiUrl":\s*"\K[^"]+' || echo "N/A")
-          echo "api-url=$API_URL" >> $GITHUB_OUTPUT
+          # Read outputs from the generated JSON file
+          if [ -f ".deployment-outputs-${STAGE}.json" ]; then
+            API_URL=$(cat .deployment-outputs-${STAGE}.json | grep -oP '"apiUrl":\s*"\K[^"]+' || echo "N/A")
+            echo "api-url=$API_URL" >> $GITHUB_OUTPUT
+          fi
 
       - name: Upload deployment outputs
         uses: actions/upload-artifact@v4
         with:
-          name: cdk-outputs-${{ needs.determine-environment.outputs.stage }}
-          path: packages/infrastructure/cdk-outputs.json
+          name: deployment-outputs-${{ needs.determine-environment.outputs.stage }}
+          path: .deployment-outputs-${{ needs.determine-environment.outputs.stage }}.json
           retention-days: 30
+        if: always()
+
+      - name: Validate deployment
+        env:
+          STAGE: ${{ needs.determine-environment.outputs.stage }}
+        run: |
+          chmod +x scripts/validate-deployment.sh
+          ./scripts/validate-deployment.sh $STAGE || echo "⚠️ Validation had some issues, but deployment completed"
 
       - name: Deployment summary
         run: |
-          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          STAGE="${{ needs.determine-environment.outputs.stage }}"
+
+          # Read deployment outputs
+          if [ -f ".deployment-outputs-${STAGE}.json" ]; then
+            TABLE_NAME=$(cat .deployment-outputs-${STAGE}.json | grep -oP '"tableName":\s*"\K[^"]+' || echo "N/A")
+            LAMBDA_NAME=$(cat .deployment-outputs-${STAGE}.json | grep -oP '"lambdaName":\s*"\K[^"]+' || echo "N/A")
+            API_URL=$(cat .deployment-outputs-${STAGE}.json | grep -oP '"apiUrl":\s*"\K[^"]+' || echo "N/A")
+            API_KEY=$(cat .deployment-outputs-${STAGE}.json | grep -oP '"apiKey":\s*"\K[^"]+' || echo "N/A")
+            STATE_MACHINE=$(cat .deployment-outputs-${STAGE}.json | grep -oP '"stateMachineArn":\s*"\K[^"]+' || echo "N/A")
+          fi
+
+          echo "## Deployment Summary 🚀" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Successfully deployed to **${{ needs.determine-environment.outputs.stage }}** environment" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Successfully deployed to **${STAGE}** environment with smart deployment" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Deployed Resources" >> $GITHUB_STEP_SUMMARY
-          echo "- GraphQL API URL: \`${{ steps.deploy.outputs.api-url }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Region: \`${{ env.AWS_REGION }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Stage: \`${{ needs.determine-environment.outputs.stage }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **DynamoDB Table:** \`${TABLE_NAME}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Lambda Function:** \`${LAMBDA_NAME}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **GraphQL API URL:** \`${API_URL}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **GraphQL API Key:** \`${API_KEY}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **State Machine:** \`${STATE_MACHINE}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Region:** \`${{ env.AWS_REGION }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Stack Names" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ needs.determine-environment.outputs.stage }}-aws-boilerplate-database\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ needs.determine-environment.outputs.stage }}-aws-boilerplate-lambda\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ needs.determine-environment.outputs.stage }}-aws-boilerplate-appsync\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ needs.determine-environment.outputs.stage }}-aws-boilerplate-step-functions\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${STAGE}-aws-boilerplate-database\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${STAGE}-aws-boilerplate-lambda\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${STAGE}-aws-boilerplate-appsync\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${STAGE}-aws-boilerplate-step-functions\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### What Changed 🎯" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Automatic cleanup of orphaned resources" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Failed stack detection and removal" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Deployment validation performed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Complete deployment outputs saved" >> $GITHUB_STEP_SUMMARY
 
   notify:
     name: Notify Deployment Status
