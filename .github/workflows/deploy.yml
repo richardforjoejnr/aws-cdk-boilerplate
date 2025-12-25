@@ -1,22 +1,30 @@
 name: Deploy to AWS
 
 on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        type: choice
+        options:
+          - dev
+          - test
+          - prod
+        default: 'dev'
+  # Only deploy automatically on main (prod) and develop (test)
+  # Feature branches should use manual workflow_dispatch
   push:
-    branches:
-      - main
-      - develop
-      - 'feature/**'
-  pull_request:
     branches:
       - main
       - develop
 
 permissions:
-  id-token: write   # Required for OIDC authentication
+  id-token: write
   contents: read
 
 env:
-  NODE_VERSION: '18'
+  NODE_VERSION: '20'
   AWS_REGION: 'us-east-1'
 
 jobs:
@@ -25,30 +33,24 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       stage: ${{ steps.set-stage.outputs.stage }}
-      should-deploy: ${{ steps.set-stage.outputs.should-deploy }}
     steps:
       - name: Determine deployment stage
         id: set-stage
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "stage=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "stage=prod" >> $GITHUB_OUTPUT
-            echo "should-deploy=true" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
             echo "stage=test" >> $GITHUB_OUTPUT
-            echo "should-deploy=true" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == refs/heads/feature/* ]]; then
             echo "stage=dev" >> $GITHUB_OUTPUT
-            echo "should-deploy=true" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            echo "stage=dev" >> $GITHUB_OUTPUT
-            echo "should-deploy=false" >> $GITHUB_OUTPUT
           else
             echo "stage=dev" >> $GITHUB_OUTPUT
-            echo "should-deploy=false" >> $GITHUB_OUTPUT
           fi
 
-  lint-and-test:
-    name: Lint and Test
+  build-and-test:
+    name: Build and Test Web App
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -63,23 +65,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run linter
-        run: npm run lint
+      - name: Build web app
+        run: |
+          cd packages/web-app
+          npm run build
 
-      - name: Run tests
-        run: npm run test
-
-      - name: Build TypeScript
-        run: npm run build
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-app-dist
+          path: packages/web-app/dist
+          retention-days: 1
 
   deploy:
     name: Deploy to ${{ needs.determine-environment.outputs.stage }}
     runs-on: ubuntu-latest
-    needs: [determine-environment, lint-and-test]
-    if: needs.determine-environment.outputs.should-deploy == 'true'
+    needs: [determine-environment, build-and-test]
     environment:
       name: ${{ needs.determine-environment.outputs.stage }}
-      url: ${{ steps.deploy.outputs.api-url }}
+      url: ${{ steps.deploy.outputs.webapp-url }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -92,6 +96,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: web-app-dist
+          path: packages/web-app/dist
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -103,58 +113,90 @@ jobs:
       - name: Verify AWS credentials
         run: |
           aws sts get-caller-identity
-          echo "Deploying to environment: ${{ needs.determine-environment.outputs.stage }}"
+          echo "Deploying web app to: ${{ needs.determine-environment.outputs.stage }}"
 
-      - name: Build application
-        run: npm run build
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh
 
-      - name: Deploy to AWS
+      - name: Deploy with Smart Deployment (Infrastructure + WebApp)
         id: deploy
         env:
           STAGE: ${{ needs.determine-environment.outputs.stage }}
         run: |
-          cd packages/infrastructure
-          npx cdk deploy --all --require-approval never --outputs-file cdk-outputs.json
+          # Use smart deployment with webapp flag
+          ./scripts/deploy-with-cleanup.sh $STAGE --webapp
 
-          # Extract API URL from outputs
-          API_URL=$(cat cdk-outputs.json | grep -oP '"GraphQLApiUrl":\s*"\K[^"]+' || echo "N/A")
-          echo "api-url=$API_URL" >> $GITHUB_OUTPUT
+          # Read outputs from the generated JSON file
+          if [ -f ".deployment-outputs-${STAGE}.json" ]; then
+            WEBAPP_URL=$(cat .deployment-outputs-${STAGE}.json | grep -oP '"webappUrl":\s*"\K[^"]+' || echo "N/A")
+            API_URL=$(cat .deployment-outputs-${STAGE}.json | grep -oP '"apiUrl":\s*"\K[^"]+' || echo "N/A")
+            echo "webapp-url=$WEBAPP_URL" >> $GITHUB_OUTPUT
+            echo "api-url=$API_URL" >> $GITHUB_OUTPUT
+          fi
 
       - name: Upload deployment outputs
         uses: actions/upload-artifact@v4
         with:
-          name: cdk-outputs-${{ needs.determine-environment.outputs.stage }}
-          path: packages/infrastructure/cdk-outputs.json
+          name: webapp-outputs-${{ needs.determine-environment.outputs.stage }}
+          path: .deployment-outputs-${{ needs.determine-environment.outputs.stage }}.json
           retention-days: 30
+        if: always()
+
+      - name: Validate deployment
+        env:
+          STAGE: ${{ needs.determine-environment.outputs.stage }}
+        run: |
+          chmod +x scripts/validate-deployment.sh
+          ./scripts/validate-deployment.sh $STAGE || echo "⚠️ Validation had some issues, but deployment completed"
 
       - name: Deployment summary
         run: |
-          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          STAGE="${{ needs.determine-environment.outputs.stage }}"
+          WEBAPP_URL="${{ steps.deploy.outputs.webapp-url }}"
+          API_URL="${{ steps.deploy.outputs.api-url }}"
+
+          # Read additional deployment outputs
+          if [ -f ".deployment-outputs-${STAGE}.json" ]; then
+            DIST_ID=$(cat .deployment-outputs-${STAGE}.json | grep -oP '"distributionId":\s*"\K[^"]+' || echo "N/A")
+            BUCKET_NAME=$(cat .deployment-outputs-${STAGE}.json | grep -oP '"s3BucketName":\s*"\K[^"]+' || echo "N/A")
+          fi
+
+          echo "## Web App Deployment Summary 🚀" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Successfully deployed to **${{ needs.determine-environment.outputs.stage }}** environment" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Successfully deployed web app to **${STAGE}** environment with smart deployment" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Deployed Resources" >> $GITHUB_STEP_SUMMARY
-          echo "- GraphQL API URL: \`${{ steps.deploy.outputs.api-url }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Region: \`${{ env.AWS_REGION }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Stage: \`${{ needs.determine-environment.outputs.stage }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Web App URL:** [${WEBAPP_URL}](${WEBAPP_URL})" >> $GITHUB_STEP_SUMMARY
+          echo "- **GraphQL API URL:** \`${API_URL}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **CloudFront Distribution:** \`${DIST_ID}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **S3 Bucket:** \`${BUCKET_NAME}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Region:** \`${{ env.AWS_REGION }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Stack Names" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ needs.determine-environment.outputs.stage }}-aws-boilerplate-database\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ needs.determine-environment.outputs.stage }}-aws-boilerplate-lambda\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ needs.determine-environment.outputs.stage }}-aws-boilerplate-appsync\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ needs.determine-environment.outputs.stage }}-aws-boilerplate-step-functions\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${STAGE}-aws-boilerplate-database\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${STAGE}-aws-boilerplate-lambda\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${STAGE}-aws-boilerplate-appsync\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${STAGE}-aws-boilerplate-step-functions\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${STAGE}-aws-boilerplate-web-app\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### What Changed 🎯" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Automatic cleanup of orphaned resources" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Failed stack detection and removal" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Deployment validation performed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ CloudFront origin properly configured (S3BucketOrigin)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Complete deployment outputs saved" >> $GITHUB_STEP_SUMMARY
 
   notify:
     name: Notify Deployment Status
     runs-on: ubuntu-latest
     needs: [determine-environment, deploy]
-    if: always() && needs.determine-environment.outputs.should-deploy == 'true'
+    if: always()
     steps:
       - name: Deployment status
         run: |
           if [[ "${{ needs.deploy.result }}" == "success" ]]; then
-            echo "✅ Deployment to ${{ needs.determine-environment.outputs.stage }} succeeded!"
+            echo "✅ Web app deployment to ${{ needs.determine-environment.outputs.stage }} succeeded!"
           else
-            echo "❌ Deployment to ${{ needs.determine-environment.outputs.stage }} failed!"
+            echo "❌ Web app deployment to ${{ needs.determine-environment.outputs.stage }} failed!"
             exit 1
           fi

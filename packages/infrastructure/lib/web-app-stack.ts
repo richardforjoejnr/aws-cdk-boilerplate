@@ -68,7 +68,7 @@ export class WebAppStack extends cdk.Stack {
     // CloudFront distribution
     this.distribution = new cloudfront.Distribution(this, 'WebAppDistribution', {
       defaultBehavior: {
-        origin: new origins.S3Origin(this.bucket, {
+        origin: origins.S3BucketOrigin.withOriginAccessIdentity(this.bucket, {
           originAccessIdentity,
         }),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,

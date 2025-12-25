@@ -1,121 +1,54 @@
 #!/bin/bash
 
-# Cleanup Failed CloudFormation Stacks and Orphaned Resources
-# Usage: ./scripts/cleanup-failed-stacks.sh [dev|test|prod]
+# Cleanup failed CloudFormation stacks
+# Usage: ./cleanup-failed-stacks.sh [dev|test|prod]
 
 set -e
 
 STAGE=${1:-dev}
 REGION=${AWS_REGION:-us-east-1}
 
-echo "🧹 Cleaning up failed stacks for stage: $STAGE"
-echo "Region: $REGION"
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+echo -e "${YELLOW}Cleaning up failed stacks for stage: ${STAGE}${NC}\n"
+
+STACK_PREFIX="${STAGE}-aws-boilerplate"
+
+# Get all stacks with failed status
+FAILED_STACKS=$(aws cloudformation list-stacks \
+    --stack-status-filter \
+        CREATE_FAILED \
+        ROLLBACK_FAILED \
+        ROLLBACK_COMPLETE \
+        DELETE_FAILED \
+        UPDATE_ROLLBACK_FAILED \
+        UPDATE_ROLLBACK_COMPLETE \
+    --region "$REGION" \
+    --query "StackSummaries[?contains(StackName, '${STACK_PREFIX}')].{Name:StackName,Status:StackStatus}" \
+    --output json)
+
+if [ "$FAILED_STACKS" == "[]" ]; then
+    echo -e "${GREEN}✓ No failed stacks found${NC}"
+    exit 0
+fi
+
+echo -e "${RED}Found failed stacks:${NC}"
+echo "$FAILED_STACKS" | jq -r '.[] | "  • \(.Name) (\(.Status))"'
+
 echo ""
+read -p "Do you want to delete these stacks? (y/N) " -n 1 -r
+echo
 
-# Function to check if table exists and delete it
-cleanup_table() {
-    local TABLE_NAME=$1
-
-    if aws dynamodb describe-table --table-name "$TABLE_NAME" --region "$REGION" &>/dev/null; then
-        echo "📊 Found orphaned table: $TABLE_NAME"
-
-        # Check if deletion protection is enabled
-        DELETION_PROTECTED=$(aws dynamodb describe-table --table-name "$TABLE_NAME" --region "$REGION" --query 'Table.DeletionProtectionEnabled' --output text)
-
-        if [ "$DELETION_PROTECTED" == "True" ]; then
-            echo "   🔓 Disabling deletion protection..."
-            aws dynamodb update-table --table-name "$TABLE_NAME" --region "$REGION" --no-deletion-protection-enabled &>/dev/null
-            sleep 2
-        fi
-
-        echo "   🗑️  Deleting table..."
-        aws dynamodb delete-table --table-name "$TABLE_NAME" --region "$REGION" &>/dev/null
-        echo "   ✅ Table deletion initiated"
-    else
-        echo "✅ No orphaned table: $TABLE_NAME"
-    fi
-}
-
-# Function to delete orphaned log groups
-cleanup_log_group() {
-    local LOG_GROUP_NAME=$1
-
-    if aws logs describe-log-groups --log-group-name-prefix "$LOG_GROUP_NAME" --region "$REGION" --query 'logGroups[0].logGroupName' --output text 2>/dev/null | grep -q "$LOG_GROUP_NAME"; then
-        echo "📝 Found orphaned log group: $LOG_GROUP_NAME"
-        aws logs delete-log-group --log-group-name "$LOG_GROUP_NAME" --region "$REGION" &>/dev/null
-        echo "   ✅ Log group deleted"
-    else
-        echo "✅ No orphaned log group: $LOG_GROUP_NAME"
-    fi
-}
-
-# Function to delete orphaned Lambda functions
-cleanup_lambda() {
-    local FUNCTION_NAME=$1
-
-    if aws lambda get-function --function-name "$FUNCTION_NAME" --region "$REGION" &>/dev/null; then
-        echo "λ Found orphaned Lambda: $FUNCTION_NAME"
-        aws lambda delete-function --function-name "$FUNCTION_NAME" --region "$REGION" &>/dev/null
-        echo "   ✅ Lambda function deleted"
-    else
-        echo "✅ No orphaned Lambda: $FUNCTION_NAME"
-    fi
-}
-
-# Function to empty and delete S3 bucket
-cleanup_s3_bucket() {
-    local BUCKET_NAME=$1
-
-    if aws s3 ls "s3://$BUCKET_NAME" --region "$REGION" &>/dev/null; then
-        echo "🪣 Found S3 bucket: $BUCKET_NAME"
-        echo "   🗑️  Emptying bucket..."
-        aws s3 rm "s3://$BUCKET_NAME" --recursive --region "$REGION" &>/dev/null || true
-        echo "   🗑️  Deleting bucket..."
-        aws s3 rb "s3://$BUCKET_NAME" --region "$REGION" &>/dev/null || true
-        echo "   ✅ S3 bucket cleanup initiated"
-    else
-        echo "✅ No S3 bucket: $BUCKET_NAME"
-    fi
-}
-
-# Function to delete failed CloudFormation stacks
-cleanup_stack() {
-    local STACK_NAME=$1
-
-    STACK_STATUS=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$REGION" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "NOT_FOUND")
-
-    if [[ "$STACK_STATUS" == "ROLLBACK_COMPLETE" ]] || [[ "$STACK_STATUS" == "CREATE_FAILED" ]] || [[ "$STACK_STATUS" == "REVIEW_IN_PROGRESS" ]]; then
-        echo "🗑️  Deleting failed stack: $STACK_NAME (Status: $STACK_STATUS)"
-        aws cloudformation delete-stack --stack-name "$STACK_NAME" --region "$REGION"
-        echo "   ✅ Stack deletion initiated"
-    elif [[ "$STACK_STATUS" == "NOT_FOUND" ]]; then
-        echo "✅ Stack not found: $STACK_NAME"
-    else
-        echo "ℹ️  Stack exists with status: $STACK_STATUS - $STACK_NAME"
-    fi
-}
-
-# Cleanup orphaned resources
-echo "Step 1: Checking for orphaned resources..."
-echo "==========================================="
-cleanup_table "${STAGE}-main-table"
-cleanup_lambda "${STAGE}-hello-world"
-cleanup_log_group "/aws/lambda/${STAGE}-hello-world"
-cleanup_log_group "/aws/appsync/apis"  # AppSync logs (if any)
-cleanup_s3_bucket "${STAGE}-aws-boilerplate-webapp"
-echo ""
-
-# Cleanup failed stacks
-echo "Step 2: Checking for failed CloudFormation stacks..."
-echo "====================================================="
-cleanup_stack "${STAGE}-aws-boilerplate-database"
-cleanup_stack "${STAGE}-aws-boilerplate-lambda"
-cleanup_stack "${STAGE}-aws-boilerplate-appsync"
-cleanup_stack "${STAGE}-aws-boilerplate-step-functions"
-cleanup_stack "${STAGE}-aws-boilerplate-web-app"
-echo ""
-
-echo "🎉 Cleanup complete for stage: $STAGE"
-echo ""
-echo "Note: Resources may take a few minutes to fully delete."
-echo "You can monitor deletion with: aws cloudformation list-stacks --region $REGION"
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "$FAILED_STACKS" | jq -r '.[].Name' | while read stack; do
+        echo -e "${YELLOW}Deleting stack: ${stack}${NC}"
+        aws cloudformation delete-stack --stack-name "$stack" --region "$REGION" 2>/dev/null || true
+    done
+    echo -e "${GREEN}✓ Failed stacks deletion initiated${NC}"
+else
+    echo -e "${YELLOW}Cleanup cancelled${NC}"
+fi

@@ -17,6 +17,7 @@ build/
 *.js.map
 *.tsbuildinfo
 !jest.config.js
+!vite-env.d.ts
 
 # IDEs
 .idea/
@@ -40,6 +41,9 @@ yarn-error.log*
 .env
 .env.local
 .env.*.local
+.env.dev
+.env.test
+.env.prod
 
 # Testing
 coverage/

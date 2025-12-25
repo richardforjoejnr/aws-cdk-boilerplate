@@ -1,0 +1,155 @@
+#!/bin/bash
+
+# Cleanup orphaned resources before CDK deployment
+# This script removes resources that exist outside of CloudFormation management
+# and would cause deployment failures
+
+set -e
+
+STAGE=${1:-dev}
+REGION=${AWS_REGION:-us-east-1}
+
+echo "🧹 Cleaning up orphaned resources for stage: $STAGE in region: $REGION"
+echo "─────────────────────────────────────────────────────────────────"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Function to check if resource exists
+check_and_delete_dynamodb_table() {
+    local table_name=$1
+
+    echo -e "\n${YELLOW}Checking DynamoDB table: ${table_name}${NC}"
+
+    if aws dynamodb describe-table --table-name "$table_name" --region "$REGION" >/dev/null 2>&1; then
+        echo -e "${YELLOW}  → Table exists. Checking if it's managed by CloudFormation...${NC}"
+
+        # Check if table is managed by CloudFormation
+        local stack_name=$(aws dynamodb list-tags-of-resource \
+            --resource-arn "arn:aws:dynamodb:${REGION}:$(aws sts get-caller-identity --query Account --output text):table/${table_name}" \
+            --region "$REGION" 2>/dev/null | \
+            jq -r '.Tags[] | select(.Key=="aws:cloudformation:stack-name") | .Value' || echo "")
+
+        if [ -z "$stack_name" ]; then
+            echo -e "${RED}  → Table is NOT managed by CloudFormation (orphaned)${NC}"
+
+            # Check if table has data
+            local item_count=$(aws dynamodb scan \
+                --table-name "$table_name" \
+                --select COUNT \
+                --region "$REGION" \
+                --output json | jq -r '.Count')
+
+            echo -e "${YELLOW}  → Table contains ${item_count} items${NC}"
+
+            if [ "$item_count" -gt 0 ]; then
+                echo -e "${RED}  ⚠️  WARNING: Table contains data! Skipping deletion.${NC}"
+                echo -e "${RED}  ⚠️  Please backup and manually delete if needed.${NC}"
+                return 1
+            fi
+
+            # Disable deletion protection if enabled
+            echo -e "${YELLOW}  → Disabling deletion protection...${NC}"
+            aws dynamodb update-table \
+                --table-name "$table_name" \
+                --no-deletion-protection-enabled \
+                --region "$REGION" >/dev/null 2>&1 || true
+
+            # Delete the table
+            echo -e "${YELLOW}  → Deleting table...${NC}"
+            aws dynamodb delete-table --table-name "$table_name" --region "$REGION" >/dev/null
+
+            # Wait for deletion
+            echo -e "${YELLOW}  → Waiting for deletion to complete...${NC}"
+            aws dynamodb wait table-not-exists --table-name "$table_name" --region "$REGION" 2>/dev/null || sleep 10
+
+            echo -e "${GREEN}  ✓ Table deleted successfully${NC}"
+        else
+            echo -e "${YELLOW}  ⚠️  Table is managed by CloudFormation stack: ${stack_name}${NC}"
+            echo -e "${YELLOW}  ⚠️  This may indicate drift. Run drift detection to verify.${NC}"
+            echo -e "${BLUE}  → To fix drift: ./scripts/fix-cloudformation-drift.sh $(basename "$stack_name" | cut -d'-' -f1)${NC}"
+        fi
+    else
+        echo -e "${GREEN}  ✓ Table does not exist${NC}"
+    fi
+}
+
+# Function to delete log group
+check_and_delete_log_group() {
+    local log_group_name=$1
+
+    echo -e "\n${YELLOW}Checking CloudWatch log group: ${log_group_name}${NC}"
+
+    if aws logs describe-log-groups \
+        --log-group-name-prefix "$log_group_name" \
+        --region "$REGION" 2>/dev/null | grep -q "$log_group_name"; then
+
+        echo -e "${YELLOW}  → Log group exists${NC}"
+
+        # Check if log group is managed by CloudFormation
+        local tags=$(aws logs list-tags-log-group \
+            --log-group-name "$log_group_name" \
+            --region "$REGION" 2>/dev/null | jq -r '.tags["aws:cloudformation:stack-name"] // empty' || echo "")
+
+        if [ -z "$tags" ]; then
+            echo -e "${RED}  → Log group is NOT managed by CloudFormation (orphaned)${NC}"
+            echo -e "${YELLOW}  → Deleting log group...${NC}"
+
+            aws logs delete-log-group --log-group-name "$log_group_name" --region "$REGION" 2>/dev/null || true
+
+            echo -e "${GREEN}  ✓ Log group deleted successfully${NC}"
+        else
+            echo -e "${GREEN}  ✓ Log group is managed by CloudFormation${NC}"
+        fi
+    else
+        echo -e "${GREEN}  ✓ Log group does not exist${NC}"
+    fi
+}
+
+# Function to check and clean up failed stacks
+check_and_cleanup_failed_stacks() {
+    local stack_prefix=$1
+
+    echo -e "\n${YELLOW}Checking for failed CloudFormation stacks...${NC}"
+
+    # Get failed stacks
+    local failed_stacks=$(aws cloudformation list-stacks \
+        --stack-status-filter CREATE_FAILED ROLLBACK_FAILED ROLLBACK_COMPLETE DELETE_FAILED UPDATE_ROLLBACK_FAILED UPDATE_ROLLBACK_COMPLETE \
+        --region "$REGION" \
+        --query "StackSummaries[?contains(StackName, '${stack_prefix}')].StackName" \
+        --output text)
+
+    if [ -n "$failed_stacks" ]; then
+        echo -e "${RED}  → Found failed stacks:${NC}"
+        for stack in $failed_stacks; do
+            echo -e "${YELLOW}    • $stack${NC}"
+            echo -e "${YELLOW}      Deleting failed stack...${NC}"
+            aws cloudformation delete-stack --stack-name "$stack" --region "$REGION" 2>/dev/null || true
+        done
+        echo -e "${GREEN}  ✓ Failed stacks deleted${NC}"
+    else
+        echo -e "${GREEN}  ✓ No failed stacks found${NC}"
+    fi
+}
+
+# Main cleanup logic
+echo -e "\n${YELLOW}Starting cleanup for ${STAGE} environment...${NC}\n"
+
+# Define resources based on stage
+STACK_PREFIX="${STAGE}-aws-boilerplate"
+MAIN_TABLE="${STAGE}-main-table"
+LAMBDA_LOG_GROUP="/aws/lambda/${STAGE}-hello-world"
+STATE_MACHINE_LOG_GROUP="/aws/stepfunctions/${STAGE}-hello-world-state-machine"
+
+# Clean up orphaned resources
+check_and_cleanup_failed_stacks "$STACK_PREFIX"
+check_and_delete_dynamodb_table "$MAIN_TABLE"
+check_and_delete_log_group "$LAMBDA_LOG_GROUP"
+check_and_delete_log_group "$STATE_MACHINE_LOG_GROUP"
+
+echo -e "\n${GREEN}✅ Cleanup completed successfully!${NC}"
+echo -e "${GREEN}─────────────────────────────────────────────────────────────────${NC}"
+echo -e "${GREEN}You can now proceed with deployment.${NC}\n"

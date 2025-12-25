@@ -1,43 +1,80 @@
 #!/bin/bash
 
-# Deploy Web App to S3 + CloudFront
-# Usage: ./scripts/deploy-webapp.sh [dev|test|prod]
+# Deploy web app to specific environment
+# Usage: ./deploy-webapp.sh [dev|test|prod]
 
 set -e
 
 STAGE=${1:-dev}
 REGION=${AWS_REGION:-us-east-1}
 
-echo "🚀 Deploying web app for stage: $STAGE"
-echo "Region: $REGION"
-echo ""
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
 
-# Step 1: Configure the web app with AppSync API details
-echo "Step 1: Configuring web app..."
-echo "=============================="
-./scripts/configure-webapp.sh "$STAGE"
-echo ""
+echo -e "${BLUE}🚀 Deploying web app to ${STAGE} environment${NC}\n"
 
-# Step 2: Build the web app
-echo "Step 2: Building web app..."
-echo "============================"
+# Configure web app with API endpoints
+echo -e "${YELLOW}🔧 Configuring web app...${NC}"
+./scripts/configure-webapp.sh $STAGE
+
+# Build web app
+echo -e "${YELLOW}📦 Building web app...${NC}"
 cd packages/web-app
+
+# Clean previous build to ensure fresh build
+rm -rf dist
+
+# Build with fresh environment
 npm run build
+
+# Verify .env file has correct API URL
+if [ -f .env ]; then
+    echo -e "${BLUE}📋 Current .env configuration:${NC}"
+    cat .env | grep VITE_GRAPHQL_API_URL || echo "⚠️  VITE_GRAPHQL_API_URL not found in .env"
+fi
+
 cd ../..
-echo "✅ Web app built successfully"
-echo ""
 
-# Step 3: Deploy infrastructure with web app
-echo "Step 3: Deploying infrastructure..."
-echo "===================================="
-export DEPLOY_WEBAPP=true
-STAGE=$STAGE npm run deploy
-echo ""
+# Deploy with CDK
+echo -e "${YELLOW}☁️  Deploying to AWS...${NC}"
+cd packages/infrastructure
+STAGE=$STAGE DEPLOY_WEBAPP=true npx cdk deploy ${STAGE}-aws-boilerplate-web-app --require-approval never
+cd ../..
 
-echo "🎉 Web app deployment complete!"
-echo ""
-echo "To get the web app URL:"
-echo "  aws cloudformation describe-stacks \\"
-echo "    --stack-name ${STAGE}-aws-boilerplate-web-app \\"
-echo "    --query 'Stacks[0].Outputs[?OutputKey==\`WebAppUrl\`].OutputValue' \\"
-echo "    --output text"
+echo -e "${GREEN}✅ Web app deployed successfully!${NC}"
+
+# Get the CloudFront URL and distribution ID
+WEBAPP_URL=$(aws cloudformation describe-stacks \
+    --stack-name "${STAGE}-aws-boilerplate-web-app" \
+    --query "Stacks[0].Outputs[?OutputKey=='WebAppUrl'].OutputValue" \
+    --output text 2>/dev/null)
+
+DIST_ID=$(aws cloudformation describe-stacks \
+    --stack-name "${STAGE}-aws-boilerplate-web-app" \
+    --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDistributionId'].OutputValue" \
+    --output text 2>/dev/null)
+
+echo -e "${BLUE}🌐 WebApp URL: ${WEBAPP_URL}${NC}"
+
+# Invalidate CloudFront cache
+if [ -n "$DIST_ID" ] && [ "$DIST_ID" != "N/A" ]; then
+    echo -e "${YELLOW}🔄 Invalidating CloudFront cache (distribution: $DIST_ID)...${NC}"
+    INVALIDATION_ID=$(aws cloudfront create-invalidation \
+        --distribution-id "$DIST_ID" \
+        --paths "/*" \
+        --query 'Invalidation.Id' \
+        --output text 2>/dev/null)
+
+    if [ -n "$INVALIDATION_ID" ]; then
+        echo -e "${GREEN}✓ Cache invalidation created: $INVALIDATION_ID${NC}"
+        echo -e "${BLUE}💡 Note: It may take 5-15 minutes for changes to appear globally${NC}"
+        echo -e "${BLUE}💡 To force immediate refresh: Open DevTools → Network tab → Disable cache${NC}"
+    else
+        echo -e "${YELLOW}⚠️  Cache invalidation may have failed${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚠️  No CloudFront distribution found, skipping cache invalidation${NC}"
+fi
