@@ -10,6 +10,7 @@ import {
   DeleteItemResponse
 } from './types';
 import * as queries from './graphql/operations';
+import { TEST_IDS } from './utils/test-ids';
 import './App.css';
 
 const client = generateClient();
@@ -22,7 +23,7 @@ function App() {
 
   // Fetch items on component mount
   useEffect(() => {
-    fetchItems();
+    void fetchItems();
   }, []);
 
   const fetchItems = async () => {
@@ -30,12 +31,13 @@ function App() {
       setLoading(true);
       setError(null);
 
-      const response = await client.graphql<ListItemsResponse>({
+      const response = await client.graphql({
         query: queries.listItems,
       });
 
       if ('data' in response && response.data) {
-        setItems(response.data.listItems || []);
+        const data = response.data as ListItemsResponse;
+        setItems(data.listItems);
       }
     } catch (err) {
       console.error('Error fetching items:', err);
@@ -88,29 +90,35 @@ function App() {
 
   return (
     <div className="app">
-      <header>
-        <h1>AWS Boilerplate - Data Manager</h1>
-        <p>Simple CRUD application using AWS AppSync and DynamoDB</p>
+      <header data-testid={TEST_IDS.APP.HEADER}>
+        <h1 data-testid={TEST_IDS.APP.TITLE}>AWS Boilerplate - Data Manager</h1>
+        <p data-testid={TEST_IDS.APP.SUBTITLE}>Simple CRUD application using AWS AppSync and DynamoDB</p>
       </header>
 
-      <main>
+      <main data-testid={TEST_IDS.APP.MAIN}>
         {error && (
-          <div className="error-message">
+          <div className="error-message" data-testid={TEST_IDS.APP.ERROR_MESSAGE}>
             {error}
           </div>
         )}
 
-        <CreateItemForm onCreate={handleCreate} loading={creating} />
+        <CreateItemForm onCreate={(input) => void handleCreate(input)} loading={creating} />
 
-        <div className="items-section">
-          <div className="section-header">
-            <h2>Items ({items.length})</h2>
-            <button onClick={fetchItems} disabled={loading}>
+        <div className="items-section" data-testid={TEST_IDS.ITEMS.SECTION}>
+          <div className="section-header" data-testid={TEST_IDS.ITEMS.HEADER}>
+            <h2 data-testid={TEST_IDS.ITEMS.TITLE}>
+              Items (<span data-testid={TEST_IDS.ITEMS.COUNT}>{items.length}</span>)
+            </h2>
+            <button
+              onClick={() => void fetchItems()}
+              disabled={loading}
+              data-testid={TEST_IDS.ITEMS.REFRESH_BUTTON}
+            >
               {loading ? 'Refreshing...' : 'Refresh'}
             </button>
           </div>
 
-          <DataTable items={items} onDelete={handleDelete} loading={loading} />
+          <DataTable items={items} onDelete={(id) => void handleDelete(id)} loading={loading} />
         </div>
       </main>
     </div>

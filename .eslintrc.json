@@ -27,5 +27,5 @@
     "@typescript-eslint/explicit-module-boundary-types": "off",
     "@typescript-eslint/require-await": "off"
   },
-  "ignorePatterns": ["node_modules/", "cdk.out/", "dist/", "build/", "*.js"]
+  "ignorePatterns": ["node_modules/", "cdk.out/", "dist/", "build/", "*.js", "vite.config.ts", "tests/"]
 }
