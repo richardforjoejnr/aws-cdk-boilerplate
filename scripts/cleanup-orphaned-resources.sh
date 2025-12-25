@@ -119,6 +119,7 @@ check_and_delete_dynamodb_table() {
 # Function to delete log group
 check_and_delete_log_group() {
     local log_group_name=$1
+    local stack_name=$2
 
     echo -e "\n${YELLOW}Checking CloudWatch log group: ${log_group_name}${NC}"
 
@@ -129,11 +130,26 @@ check_and_delete_log_group() {
         echo -e "${YELLOW}  → Log group exists${NC}"
 
         # Check if log group is managed by CloudFormation
-        local tags=$(aws logs list-tags-log-group \
-            --log-group-name "$log_group_name" \
-            --region "$REGION" 2>/dev/null | jq -r '.tags["aws:cloudformation:stack-name"] // empty' || echo "")
+        # Use CloudFormation API instead of tags to avoid false positives
+        local is_managed=false
 
-        if [ -z "$tags" ]; then
+        if [ -n "$stack_name" ] && aws cloudformation describe-stacks \
+            --stack-name "$stack_name" \
+            --region "$REGION" >/dev/null 2>&1; then
+
+            # Query by resource type and physical ID
+            local cf_log_group=$(aws cloudformation describe-stack-resources \
+                --stack-name "$stack_name" \
+                --region "$REGION" \
+                --query "StackResources[?ResourceType=='AWS::Logs::LogGroup' && PhysicalResourceId=='${log_group_name}'].PhysicalResourceId" \
+                --output text 2>/dev/null || echo "")
+
+            if [ "$cf_log_group" = "$log_group_name" ]; then
+                is_managed=true
+            fi
+        fi
+
+        if [ "$is_managed" = false ]; then
             echo -e "${RED}  → Log group is NOT managed by CloudFormation (orphaned)${NC}"
             echo -e "${YELLOW}  → Deleting log group...${NC}"
 
@@ -141,7 +157,8 @@ check_and_delete_log_group() {
 
             echo -e "${GREEN}  ✓ Log group deleted successfully${NC}"
         else
-            echo -e "${GREEN}  ✓ Log group is managed by CloudFormation${NC}"
+            echo -e "${GREEN}  ✓ Log group is managed by CloudFormation stack: ${stack_name}${NC}"
+            echo -e "${GREEN}  → No cleanup needed${NC}"
         fi
     else
         echo -e "${GREEN}  ✓ Log group does not exist${NC}"
@@ -182,12 +199,14 @@ STACK_PREFIX="${STAGE}-aws-boilerplate"
 MAIN_TABLE="${STAGE}-main-table"
 LAMBDA_LOG_GROUP="/aws/lambda/${STAGE}-hello-world"
 STATE_MACHINE_LOG_GROUP="/aws/stepfunctions/${STAGE}-hello-world-state-machine"
+LAMBDA_STACK="${STAGE}-aws-boilerplate-lambda"
+STEP_FUNCTIONS_STACK="${STAGE}-aws-boilerplate-step-functions"
 
 # Clean up orphaned resources
 check_and_cleanup_failed_stacks "$STACK_PREFIX"
 check_and_delete_dynamodb_table "$MAIN_TABLE"
-check_and_delete_log_group "$LAMBDA_LOG_GROUP"
-check_and_delete_log_group "$STATE_MACHINE_LOG_GROUP"
+check_and_delete_log_group "$LAMBDA_LOG_GROUP" "$LAMBDA_STACK"
+check_and_delete_log_group "$STATE_MACHINE_LOG_GROUP" "$STEP_FUNCTIONS_STACK"
 
 echo -e "\n${GREEN}✅ Cleanup completed successfully!${NC}"
 echo -e "${GREEN}─────────────────────────────────────────────────────────────────${NC}"
