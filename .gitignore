@@ -17,6 +17,7 @@ build/
 *.js.map
 *.tsbuildinfo
 !jest.config.js
+!vite-env.d.ts
 
 # IDEs
 .idea/
