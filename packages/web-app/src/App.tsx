@@ -91,7 +91,7 @@ function App() {
   return (
     <div className="app">
       <header data-testid={TEST_IDS.APP.HEADER}>
-        <h1 data-testid={TEST_IDS.APP.TITLE}>AWS Boilerplate - Data Manager</h1>
+        <h1 data-testid={TEST_IDS.APP.TITLE}>Richards AWS - Data Manager</h1>
         <p data-testid={TEST_IDS.APP.SUBTITLE}>Simple CRUD application using AWS AppSync and DynamoDB</p>
       </header>
 
