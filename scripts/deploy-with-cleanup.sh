@@ -6,9 +6,22 @@
 set -e
 
 STAGE=${1:-dev}
-SKIP_CLEANUP=${2}
-DEPLOY_WEBAPP=${3}
+SKIP_CLEANUP=""
+DEPLOY_WEBAPP=""
 REGION=${AWS_REGION:-us-east-1}
+
+# Parse flags from all arguments
+shift # Remove first argument (stage)
+for arg in "$@"; do
+    case $arg in
+        --skip-cleanup)
+            SKIP_CLEANUP="--skip-cleanup"
+            ;;
+        --webapp)
+            DEPLOY_WEBAPP="--webapp"
+            ;;
+    esac
+done
 
 # Colors
 RED='\033[0;31m'
