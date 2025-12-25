@@ -118,13 +118,73 @@ jobs:
       - name: Make scripts executable
         run: chmod +x scripts/*.sh
 
+      - name: Check for orphaned table
+        id: check-table
+        env:
+          STAGE: ${{ needs.determine-environment.outputs.stage }}
+        continue-on-error: true
+        run: |
+          TABLE_NAME="${STAGE}-main-table"
+
+          # Check if table exists but not managed by CloudFormation
+          if aws dynamodb describe-table --table-name "$TABLE_NAME" --region ${{ env.AWS_REGION }} >/dev/null 2>&1; then
+            STACK_NAME="${STAGE}-aws-boilerplate-database"
+
+            # Check if stack exists and manages this table
+            # Query by resource type and physical ID since logical ID has hash suffix
+            IS_MANAGED=false
+            if aws cloudformation describe-stacks \
+              --stack-name "$STACK_NAME" \
+              --region ${{ env.AWS_REGION }} >/dev/null 2>&1; then
+
+              CF_TABLE_NAME=$(aws cloudformation describe-stack-resources \
+                --stack-name "$STACK_NAME" \
+                --region ${{ env.AWS_REGION }} \
+                --query "StackResources[?ResourceType=='AWS::DynamoDB::Table' && PhysicalResourceId=='${TABLE_NAME}'].PhysicalResourceId" \
+                --output text 2>/dev/null || echo "")
+
+              if [ "$CF_TABLE_NAME" = "$TABLE_NAME" ]; then
+                IS_MANAGED=true
+              fi
+            fi
+
+            if [ "$IS_MANAGED" = "false" ]; then
+              ITEM_COUNT=$(aws dynamodb scan \
+                --table-name "$TABLE_NAME" \
+                --select COUNT \
+                --region ${{ env.AWS_REGION }} \
+                --output json | jq -r '.Count')
+
+              if [ "$ITEM_COUNT" -gt 0 ]; then
+                echo "orphaned_table=true" >> $GITHUB_OUTPUT
+                echo "item_count=$ITEM_COUNT" >> $GITHUB_OUTPUT
+                echo "⚠️ Orphaned table with $ITEM_COUNT items detected"
+
+                # For production, fail the deployment
+                if [ "$STAGE" = "prod" ]; then
+                  echo "::error::Orphaned production table detected! Manual intervention required."
+                  echo "::error::Use ./scripts/import-existing-table.sh prod to import the table"
+                  exit 1
+                fi
+              fi
+            fi
+          fi
+
+      - name: Backup orphaned table (non-prod)
+        if: steps.check-table.outputs.orphaned_table == 'true' && needs.determine-environment.outputs.stage != 'prod'
+        env:
+          STAGE: ${{ needs.determine-environment.outputs.stage }}
+        run: |
+          echo "📦 Backing up orphaned table..."
+          ./scripts/backup-table.sh $STAGE || true
+
       - name: Deploy with Smart Deployment (Infrastructure + WebApp)
         id: deploy
         env:
           STAGE: ${{ needs.determine-environment.outputs.stage }}
         run: |
           # Use smart deployment with webapp flag
-          ./scripts/deploy-with-cleanup.sh $STAGE --webapp
+          ./scripts/deploy-with-cleanup.sh ${{ needs.determine-environment.outputs.stage }} --webapp
 
           # Read outputs from the generated JSON file
           if [ -f ".deployment-outputs-${STAGE}.json" ]; then
