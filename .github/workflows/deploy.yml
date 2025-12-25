@@ -130,11 +130,25 @@ jobs:
           if aws dynamodb describe-table --table-name "$TABLE_NAME" --region ${{ env.AWS_REGION }} >/dev/null 2>&1; then
             STACK_NAME="${STAGE}-aws-boilerplate-database"
 
-            if ! aws cloudformation describe-stack-resources \
+            # Check if stack exists and manages this table
+            # Query by resource type and physical ID since logical ID has hash suffix
+            IS_MANAGED=false
+            if aws cloudformation describe-stacks \
               --stack-name "$STACK_NAME" \
-              --logical-resource-id "MainTable" \
               --region ${{ env.AWS_REGION }} >/dev/null 2>&1; then
 
+              CF_TABLE_NAME=$(aws cloudformation describe-stack-resources \
+                --stack-name "$STACK_NAME" \
+                --region ${{ env.AWS_REGION }} \
+                --query "StackResources[?ResourceType=='AWS::DynamoDB::Table' && PhysicalResourceId=='${TABLE_NAME}'].PhysicalResourceId" \
+                --output text 2>/dev/null || echo "")
+
+              if [ "$CF_TABLE_NAME" = "$TABLE_NAME" ]; then
+                IS_MANAGED=true
+              fi
+            fi
+
+            if [ "$IS_MANAGED" = "false" ]; then
               ITEM_COUNT=$(aws dynamodb scan \
                 --table-name "$TABLE_NAME" \
                 --select COUNT \

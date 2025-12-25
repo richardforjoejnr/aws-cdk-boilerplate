@@ -16,6 +16,7 @@ echo "────────────────────────�
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Function to check if resource exists
@@ -28,12 +29,27 @@ check_and_delete_dynamodb_table() {
         echo -e "${YELLOW}  → Table exists. Checking if it's managed by CloudFormation...${NC}"
 
         # Check if table is managed by CloudFormation
-        local stack_name=$(aws dynamodb list-tags-of-resource \
-            --resource-arn "arn:aws:dynamodb:${REGION}:$(aws sts get-caller-identity --query Account --output text):table/${table_name}" \
-            --region "$REGION" 2>/dev/null | \
-            jq -r '.Tags[] | select(.Key=="aws:cloudformation:stack-name") | .Value' || echo "")
+        # Use CloudFormation API instead of tags to avoid false positives
+        local cf_stack_name="${STAGE}-aws-boilerplate-database"
+        local is_managed=false
 
-        if [ -z "$stack_name" ]; then
+        # Query by resource type and physical ID since logical ID has a hash suffix
+        if aws cloudformation describe-stacks \
+            --stack-name "$cf_stack_name" \
+            --region "$REGION" >/dev/null 2>&1; then
+            # Stack exists, check if this table is managed by it
+            local cf_table_name=$(aws cloudformation describe-stack-resources \
+                --stack-name "$cf_stack_name" \
+                --region "$REGION" \
+                --query "StackResources[?ResourceType=='AWS::DynamoDB::Table' && PhysicalResourceId=='${table_name}'].PhysicalResourceId" \
+                --output text 2>/dev/null || echo "")
+
+            if [ "$cf_table_name" = "$table_name" ]; then
+                is_managed=true
+            fi
+        fi
+
+        if [ "$is_managed" = false ]; then
             echo -e "${RED}  → Table is NOT managed by CloudFormation (orphaned)${NC}"
 
             # Check if table has data
@@ -92,9 +108,8 @@ check_and_delete_dynamodb_table() {
 
             echo -e "${GREEN}  ✓ Table deleted successfully${NC}"
         else
-            echo -e "${YELLOW}  ⚠️  Table is managed by CloudFormation stack: ${stack_name}${NC}"
-            echo -e "${YELLOW}  ⚠️  This may indicate drift. Run drift detection to verify.${NC}"
-            echo -e "${BLUE}  → To fix drift: ./scripts/fix-cloudformation-drift.sh $(basename "$stack_name" | cut -d'-' -f1)${NC}"
+            echo -e "${GREEN}  ✓ Table is managed by CloudFormation stack: ${cf_stack_name}${NC}"
+            echo -e "${GREEN}  → No cleanup needed${NC}"
         fi
     else
         echo -e "${GREEN}  ✓ Table does not exist${NC}"
