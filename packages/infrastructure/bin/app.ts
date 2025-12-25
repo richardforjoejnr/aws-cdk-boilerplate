@@ -21,6 +21,7 @@ const env = {
 };
 
 // Determine if this is a production-like environment
+// PR preview environments (pr-*) are treated as dev-like
 const isProdLike = stage === 'prod' || stage === 'test';
 
 // Set context values for all stacks

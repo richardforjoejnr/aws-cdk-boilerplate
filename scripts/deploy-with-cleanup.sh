@@ -29,9 +29,14 @@ echo -e "${YELLOW}Deploy WebApp:${NC} ${DEPLOY_WEBAPP:-no}"
 echo ""
 
 # Validate stage
-if [[ ! "$STAGE" =~ ^(dev|test|prod)$ ]]; then
+# Allow dev, test, prod, or pr-* (for PR preview environments)
+if [[ ! "$STAGE" =~ ^(dev|test|prod|pr-[0-9]+)$ ]]; then
     echo -e "${RED}❌ Invalid stage: $STAGE${NC}"
-    echo -e "${YELLOW}Usage: $0 [dev|test|prod] [--skip-cleanup] [--webapp]${NC}"
+    echo -e "${YELLOW}Usage: $0 [dev|test|prod|pr-NUMBER] [--skip-cleanup] [--webapp]${NC}"
+    echo -e "${YELLOW}Examples:${NC}"
+    echo -e "  $0 dev --webapp"
+    echo -e "  $0 prod"
+    echo -e "  $0 pr-123 --webapp  # For PR preview environments"
     exit 1
 fi
 
