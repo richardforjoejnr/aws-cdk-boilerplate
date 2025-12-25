@@ -55,6 +55,75 @@ jobs:
       - name: Make scripts executable
         run: chmod +x scripts/*.sh
 
+      - name: Check for existing table with data
+        id: check-table
+        env:
+          STAGE: ${{ steps.env-name.outputs.env_name }}
+        run: |
+          TABLE_NAME="${STAGE}-main-table"
+
+          # Check if table exists
+          if aws dynamodb describe-table --table-name "$TABLE_NAME" --region ${{ env.AWS_REGION }} >/dev/null 2>&1; then
+            echo "table_exists=true" >> $GITHUB_OUTPUT
+
+            # Check if managed by CloudFormation
+            STACK_NAME="${STAGE}-aws-boilerplate-database"
+            if aws cloudformation describe-stack-resources \
+              --stack-name "$STACK_NAME" \
+              --logical-resource-id "MainTable" \
+              --region ${{ env.AWS_REGION }} >/dev/null 2>&1; then
+              echo "managed_by_cfn=true" >> $GITHUB_OUTPUT
+              echo "Table is already managed by CloudFormation"
+            else
+              # Table exists but not managed
+              ITEM_COUNT=$(aws dynamodb scan \
+                --table-name "$TABLE_NAME" \
+                --select COUNT \
+                --region ${{ env.AWS_REGION }} \
+                --output json | jq -r '.Count')
+
+              echo "managed_by_cfn=false" >> $GITHUB_OUTPUT
+              echo "item_count=$ITEM_COUNT" >> $GITHUB_OUTPUT
+
+              if [ "$ITEM_COUNT" -gt 0 ]; then
+                echo "has_data=true" >> $GITHUB_OUTPUT
+                echo "⚠️ Orphaned table with $ITEM_COUNT items detected"
+              else
+                echo "has_data=false" >> $GITHUB_OUTPUT
+              fi
+            fi
+          else
+            echo "table_exists=false" >> $GITHUB_OUTPUT
+            echo "No existing table - will create new"
+          fi
+
+      - name: Backup existing table (if needed)
+        if: steps.check-table.outputs.has_data == 'true'
+        env:
+          STAGE: ${{ steps.env-name.outputs.env_name }}
+        run: |
+          echo "📦 Backing up existing table before deployment..."
+          ./scripts/backup-table.sh $STAGE || echo "Backup failed, continuing anyway"
+
+      - name: Handle orphaned table
+        if: steps.check-table.outputs.has_data == 'true'
+        env:
+          STAGE: ${{ steps.env-name.outputs.env_name }}
+        run: |
+          echo "🔄 Attempting to import existing table into CloudFormation..."
+
+          TABLE_NAME="${STAGE}-main-table"
+
+          # Delete table to allow fresh deployment
+          # (Backup was created in previous step)
+          echo "Deleting orphaned table (backup exists)..."
+          aws dynamodb delete-table --table-name "$TABLE_NAME" --region ${{ env.AWS_REGION }}
+
+          echo "Waiting for deletion..."
+          aws dynamodb wait table-not-exists --table-name "$TABLE_NAME" --region ${{ env.AWS_REGION }} || sleep 30
+
+          echo "✓ Table deleted, deployment will create fresh table"
+
       - name: Deploy Preview Environment
         id: deploy
         env:
@@ -71,6 +140,42 @@ jobs:
             echo "api_url=$API_URL" >> $GITHUB_OUTPUT
           fi
 
+      - name: Upload backup artifacts
+        if: steps.check-table.outputs.has_data == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: table-backup-${{ steps.env-name.outputs.env_name }}
+          path: backups/
+          retention-days: 7
+
+      - name: Restore table data (if backup exists)
+        if: steps.check-table.outputs.has_data == 'true'
+        id: restore
+        env:
+          STAGE: ${{ steps.env-name.outputs.env_name }}
+        run: |
+          echo "🔄 Restoring table data from backup..."
+
+          # Find most recent backup
+          BACKUP_FILE=$(ls -t backups/${STAGE}-main-table-*.json 2>/dev/null | head -1)
+
+          if [ -n "$BACKUP_FILE" ] && [ -f "$BACKUP_FILE" ]; then
+            echo "Restoring from: $BACKUP_FILE"
+
+            if ./scripts/restore-table.sh $STAGE "$BACKUP_FILE"; then
+              RESTORED_COUNT=$(cat "$BACKUP_FILE" | jq -r '.Items | length')
+              echo "restored_count=$RESTORED_COUNT" >> $GITHUB_OUTPUT
+              echo "restore_status=success" >> $GITHUB_OUTPUT
+              echo "✓ Restored $RESTORED_COUNT items"
+            else
+              echo "restore_status=failed" >> $GITHUB_OUTPUT
+              echo "⚠️ Restore failed"
+            fi
+          else
+            echo "restore_status=no_backup" >> $GITHUB_OUTPUT
+            echo "⚠️ No backup file found, skipping restore"
+          fi
+
       - name: Comment on PR
         uses: actions/github-script@v7
         with:
@@ -78,8 +183,11 @@ jobs:
             const webappUrl = '${{ steps.deploy.outputs.webapp_url }}';
             const apiUrl = '${{ steps.deploy.outputs.api_url }}';
             const envName = '${{ steps.env-name.outputs.env_name }}';
+            const hasData = '${{ steps.check-table.outputs.has_data }}';
+            const restoreStatus = '${{ steps.restore.outputs.restore_status }}';
+            const restoredCount = '${{ steps.restore.outputs.restored_count }}';
 
-            const body = `## 🚀 Preview Environment Deployed
+            let body = `## 🚀 Preview Environment Deployed
 
             Your preview environment is ready!
 
@@ -87,7 +195,26 @@ jobs:
             **Web App:** ${webappUrl}
             **GraphQL API:** ${apiUrl}
 
-            This environment will be automatically destroyed when the PR is merged or closed.
+            `;
+
+            // Add restoration info if applicable
+            if (hasData === 'true') {
+              body += `\n### 📦 Data Restoration\n\n`;
+
+              if (restoreStatus === 'success') {
+                body += `✅ Successfully restored **${restoredCount} items** from backup\n\n`;
+                body += `> An orphaned table was detected with existing data. The data was backed up, the table recreated, and data restored automatically.\n`;
+              } else if (restoreStatus === 'failed') {
+                body += `⚠️ Table backup was created, but restoration failed\n\n`;
+                body += `> Check the workflow logs for details. Backup artifacts are available in the workflow run.\n`;
+              } else {
+                body += `⚠️ Orphaned table was detected and recreated\n\n`;
+                body += `> Previous data may have been lost. Check backup artifacts if needed.\n`;
+              }
+              body += `\n`;
+            }
+
+            body += `This environment will be automatically destroyed when the PR is merged or closed.
 
             ---
             <sub>Deployed from commit ${{ github.sha }}</sub>`;

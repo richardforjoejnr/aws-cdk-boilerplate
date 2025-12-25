@@ -118,6 +118,52 @@ jobs:
       - name: Make scripts executable
         run: chmod +x scripts/*.sh
 
+      - name: Check for orphaned table
+        id: check-table
+        env:
+          STAGE: ${{ needs.determine-environment.outputs.stage }}
+        continue-on-error: true
+        run: |
+          TABLE_NAME="${STAGE}-main-table"
+
+          # Check if table exists but not managed by CloudFormation
+          if aws dynamodb describe-table --table-name "$TABLE_NAME" --region ${{ env.AWS_REGION }} >/dev/null 2>&1; then
+            STACK_NAME="${STAGE}-aws-boilerplate-database"
+
+            if ! aws cloudformation describe-stack-resources \
+              --stack-name "$STACK_NAME" \
+              --logical-resource-id "MainTable" \
+              --region ${{ env.AWS_REGION }} >/dev/null 2>&1; then
+
+              ITEM_COUNT=$(aws dynamodb scan \
+                --table-name "$TABLE_NAME" \
+                --select COUNT \
+                --region ${{ env.AWS_REGION }} \
+                --output json | jq -r '.Count')
+
+              if [ "$ITEM_COUNT" -gt 0 ]; then
+                echo "orphaned_table=true" >> $GITHUB_OUTPUT
+                echo "item_count=$ITEM_COUNT" >> $GITHUB_OUTPUT
+                echo "⚠️ Orphaned table with $ITEM_COUNT items detected"
+
+                # For production, fail the deployment
+                if [ "$STAGE" = "prod" ]; then
+                  echo "::error::Orphaned production table detected! Manual intervention required."
+                  echo "::error::Use ./scripts/import-existing-table.sh prod to import the table"
+                  exit 1
+                fi
+              fi
+            fi
+          fi
+
+      - name: Backup orphaned table (non-prod)
+        if: steps.check-table.outputs.orphaned_table == 'true' && needs.determine-environment.outputs.stage != 'prod'
+        env:
+          STAGE: ${{ needs.determine-environment.outputs.stage }}
+        run: |
+          echo "📦 Backing up orphaned table..."
+          ./scripts/backup-table.sh $STAGE || true
+
       - name: Deploy with Smart Deployment (Infrastructure + WebApp)
         id: deploy
         env:
