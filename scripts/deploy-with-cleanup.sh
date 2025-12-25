@@ -91,6 +91,18 @@ cd ../..
 
 echo -e "${GREEN}✓ Infrastructure deployed successfully${NC}\n"
 
+# If webapp was deployed, rebuild and redeploy it with updated API endpoints
+if [[ "$DEPLOY_WEBAPP" == "--webapp" ]]; then
+    echo -e "${BLUE}🔄 Step 3.5: Rebuilding and redeploying web app with updated API endpoints...${NC}"
+    ./scripts/deploy-webapp.sh "$STAGE"
+
+    if [ $? -ne 0 ]; then
+        echo -e "${YELLOW}⚠️  Web app deployment had issues, but continuing...${NC}"
+    else
+        echo -e "${GREEN}✓ Web app redeployed with current API endpoints${NC}\n"
+    fi
+fi
+
 # Get stack outputs
 echo -e "${BLUE}📊 Step 4: Fetching deployment outputs...${NC}"
 
