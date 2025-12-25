@@ -70,13 +70,23 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh
+
       - name: Destroy infrastructure
         env:
           STAGE: ${{ github.event.inputs.stage }}
         run: |
-          echo "🗑️ Destroying $STAGE environment..."
+          echo "🗑️ Destroying ${{ github.event.inputs.stage }} environment..."
           cd packages/infrastructure
-          npx cdk destroy --all --force
+          STAGE=${{ github.event.inputs.stage }} npx cdk destroy --all --force
+
+      - name: Cleanup orphaned resources
+        env:
+          STAGE: ${{ github.event.inputs.stage }}
+        run: |
+          echo "🧹 Cleaning up any orphaned resources..."
+          ./scripts/cleanup-orphaned-resources.sh ${{ github.event.inputs.stage }}
 
       - name: Destruction summary
         run: |

@@ -124,7 +124,7 @@ jobs:
           STAGE: ${{ needs.determine-environment.outputs.stage }}
         run: |
           # Use smart deployment with webapp flag
-          ./scripts/deploy-with-cleanup.sh $STAGE --webapp
+          ./scripts/deploy-with-cleanup.sh ${{ needs.determine-environment.outputs.stage }} --webapp
 
           # Read outputs from the generated JSON file
           if [ -f ".deployment-outputs-${STAGE}.json" ]; then
