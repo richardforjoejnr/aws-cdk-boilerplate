@@ -9,6 +9,7 @@ STAGE=${1:-dev}
 REGION=${AWS_REGION:-us-east-1}
 
 # Colors
+RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
@@ -32,6 +33,19 @@ API_ID=$(aws cloudformation describe-stacks \
     --stack-name "${STACK_PREFIX}-appsync" \
     --query "Stacks[0].Outputs[?OutputKey=='GraphQLApiId'].OutputValue" \
     --output text 2>/dev/null)
+
+# Validate we got the required values
+if [ -z "$API_URL" ] || [ "$API_URL" == "None" ]; then
+    echo -e "${RED}❌ Error: Could not retrieve API URL from CloudFormation${NC}"
+    echo -e "${YELLOW}Stack: ${STACK_PREFIX}-appsync${NC}"
+    exit 1
+fi
+
+if [ -z "$API_KEY" ] || [ "$API_KEY" == "None" ]; then
+    echo -e "${RED}❌ Error: Could not retrieve API Key from CloudFormation${NC}"
+    echo -e "${YELLOW}Stack: ${STACK_PREFIX}-appsync${NC}"
+    exit 1
+fi
 
 # Create/Update .env file for web app
 ENV_FILE="packages/web-app/.env.${STAGE}"

@@ -23,7 +23,19 @@ echo -e "${YELLOW}🔧 Configuring web app...${NC}"
 # Build web app
 echo -e "${YELLOW}📦 Building web app...${NC}"
 cd packages/web-app
+
+# Clean previous build to ensure fresh build
+rm -rf dist
+
+# Build with fresh environment
 npm run build
+
+# Verify .env file has correct API URL
+if [ -f .env ]; then
+    echo -e "${BLUE}📋 Current .env configuration:${NC}"
+    cat .env | grep VITE_GRAPHQL_API_URL || echo "⚠️  VITE_GRAPHQL_API_URL not found in .env"
+fi
+
 cd ../..
 
 # Deploy with CDK
@@ -48,6 +60,21 @@ DIST_ID=$(aws cloudformation describe-stacks \
 echo -e "${BLUE}🌐 WebApp URL: ${WEBAPP_URL}${NC}"
 
 # Invalidate CloudFront cache
-echo -e "${YELLOW}🔄 Invalidating CloudFront cache...${NC}"
-aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/*" >/dev/null 2>&1 || true
-echo -e "${GREEN}✓ Cache invalidation initiated${NC}"
+if [ -n "$DIST_ID" ] && [ "$DIST_ID" != "N/A" ]; then
+    echo -e "${YELLOW}🔄 Invalidating CloudFront cache (distribution: $DIST_ID)...${NC}"
+    INVALIDATION_ID=$(aws cloudfront create-invalidation \
+        --distribution-id "$DIST_ID" \
+        --paths "/*" \
+        --query 'Invalidation.Id' \
+        --output text 2>/dev/null)
+
+    if [ -n "$INVALIDATION_ID" ]; then
+        echo -e "${GREEN}✓ Cache invalidation created: $INVALIDATION_ID${NC}"
+        echo -e "${BLUE}💡 Note: It may take 5-15 minutes for changes to appear globally${NC}"
+        echo -e "${BLUE}💡 To force immediate refresh: Open DevTools → Network tab → Disable cache${NC}"
+    else
+        echo -e "${YELLOW}⚠️  Cache invalidation may have failed${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚠️  No CloudFront distribution found, skipping cache invalidation${NC}"
+fi
