@@ -36,7 +36,7 @@ export class LambdaStack extends cdk.Stack {
     // Hello World Lambda Function
     this.helloWorldFunction = new nodejs.NodejsFunction(this, 'HelloWorldFunction', {
       functionName: `${stage}-hello-world`,
-      runtime: lambda.Runtime.NODEJS_18_X,
+      runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'handler',
       entry: path.join(__dirname, '../../functions/src/hello-world/index.ts'),
       bundling: {
