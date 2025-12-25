@@ -19,6 +19,7 @@ echo -e "${BLUE}🔍 Detecting CloudFormation drift for ${STAGE} environment${NC
 
 STACK_PREFIX="${STAGE}-aws-boilerplate"
 DRIFT_DETECTED=false
+DRIFTED_STACKS=()
 
 # Function to check if a stack has drift
 check_stack_drift() {
@@ -66,6 +67,7 @@ check_stack_drift() {
         if [ "$exists" = false ]; then
             echo -e "${RED}  ✗ DRIFT DETECTED: Resource ${resource_id} does not exist but stack thinks it does${NC}"
             DRIFT_DETECTED=true
+            DRIFTED_STACKS+=("$stack_name")
             return 1
         else
             echo -e "${GREEN}  ✓ Resource ${resource_id} exists${NC}"
@@ -88,13 +90,65 @@ echo ""
 
 if [ "$DRIFT_DETECTED" = true ]; then
     echo -e "${RED}❌ Drift detected! CloudFormation stacks are out of sync with actual resources.${NC}"
-    echo -e "${YELLOW}📋 Recommended fix:${NC}"
-    echo -e "${YELLOW}   1. Delete the drifted stack(s) to remove the drift${NC}"
-    echo -e "${YELLOW}   2. Redeploy to recreate everything fresh${NC}"
     echo ""
-    echo -e "${BLUE}Run this command to fix:${NC}"
-    echo -e "${GREEN}   ./scripts/fix-drift-and-redeploy.sh ${STAGE}${NC}"
-    exit 1
+
+    # Get unique drifted stacks
+    UNIQUE_STACKS=($(printf '%s\n' "${DRIFTED_STACKS[@]}" | sort -u))
+
+    echo -e "${YELLOW}🔧 Auto-fixing drift by deleting drifted stacks...${NC}"
+    echo ""
+
+    # Delete stacks in reverse dependency order (AppSync depends on Database, so delete AppSync first if both drifted)
+    STACK_DELETE_ORDER=(
+        "${STACK_PREFIX}-appsync"
+        "${STACK_PREFIX}-step-functions"
+        "${STACK_PREFIX}-lambda"
+        "${STACK_PREFIX}-database"
+    )
+
+    for stack in "${STACK_DELETE_ORDER[@]}"; do
+        # Check if this stack is in the drifted list
+        if printf '%s\n' "${UNIQUE_STACKS[@]}" | grep -q "^${stack}$"; then
+            echo -e "${BLUE}Deleting drifted stack: ${stack}${NC}"
+
+            # Check if stack exists and is not already being deleted
+            STACK_STATUS=$(aws cloudformation describe-stacks \
+                --stack-name "$stack" \
+                --region "$REGION" \
+                --query 'Stacks[0].StackStatus' \
+                --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+
+            if [ "$STACK_STATUS" != "DOES_NOT_EXIST" ] && [ "$STACK_STATUS" != "DELETE_IN_PROGRESS" ]; then
+                aws cloudformation delete-stack --stack-name "$stack" --region "$REGION"
+                echo -e "${GREEN}  ✓ Stack deletion initiated${NC}"
+
+                # Wait for deletion to complete
+                echo -e "${YELLOW}  ⏳ Waiting for stack deletion to complete...${NC}"
+                aws cloudformation wait stack-delete-complete --stack-name "$stack" --region "$REGION" 2>/dev/null || {
+                    # If wait fails, check if stack is in failed state
+                    CURRENT_STATUS=$(aws cloudformation describe-stacks \
+                        --stack-name "$stack" \
+                        --region "$REGION" \
+                        --query 'Stacks[0].StackStatus' \
+                        --output text 2>/dev/null || echo "DELETED")
+
+                    if [ "$CURRENT_STATUS" = "DELETE_FAILED" ]; then
+                        echo -e "${RED}  ✗ Stack deletion failed, retrying with force...${NC}"
+                        aws cloudformation delete-stack --stack-name "$stack" --region "$REGION"
+                        aws cloudformation wait stack-delete-complete --stack-name "$stack" --region "$REGION" 2>/dev/null || true
+                    fi
+                }
+                echo -e "${GREEN}  ✓ Stack deleted successfully${NC}"
+            else
+                echo -e "${YELLOW}  ⊘ Stack already being deleted or doesn't exist${NC}"
+            fi
+            echo ""
+        fi
+    done
+
+    echo -e "${GREEN}✅ Drift fixed! Drifted stacks have been deleted.${NC}"
+    echo -e "${BLUE}💡 The deployment will now recreate these stacks fresh.${NC}"
+    exit 0
 else
     echo -e "${GREEN}✅ No drift detected! All resources are in sync with CloudFormation.${NC}"
     exit 0

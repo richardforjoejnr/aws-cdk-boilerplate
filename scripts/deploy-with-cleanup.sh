@@ -67,12 +67,9 @@ if [[ "$SKIP_CLEANUP" != "--skip-cleanup" ]]; then
     echo -e "${BLUE}📋 Step 1: Running pre-deployment cleanup...${NC}"
     ./scripts/cleanup-orphaned-resources.sh "$STAGE"
 
-    echo -e "\n${BLUE}🔍 Step 1.5: Detecting CloudFormation drift...${NC}"
-    if ./scripts/fix-cloudformation-drift.sh "$STAGE" 2>/dev/null; then
-        echo -e "${GREEN}✓ No drift detected${NC}\n"
-    else
-        echo -e "${YELLOW}⚠️  Drift detected - will be fixed during deployment${NC}\n"
-    fi
+    echo -e "\n${BLUE}🔍 Step 1.5: Detecting and fixing CloudFormation drift...${NC}"
+    ./scripts/fix-cloudformation-drift.sh "$STAGE"
+    echo ""
 else
     echo -e "${YELLOW}⚠️  Skipping cleanup (--skip-cleanup flag provided)${NC}\n"
 fi
