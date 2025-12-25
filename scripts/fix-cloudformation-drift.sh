@@ -124,21 +124,41 @@ if [ "$DRIFT_DETECTED" = true ]; then
 
                 # Wait for deletion to complete
                 echo -e "${YELLOW}  ⏳ Waiting for stack deletion to complete...${NC}"
-                aws cloudformation wait stack-delete-complete --stack-name "$stack" --region "$REGION" 2>/dev/null || {
-                    # If wait fails, check if stack is in failed state
-                    CURRENT_STATUS=$(aws cloudformation describe-stacks \
-                        --stack-name "$stack" \
-                        --region "$REGION" \
-                        --query 'Stacks[0].StackStatus' \
-                        --output text 2>/dev/null || echo "DELETED")
 
-                    if [ "$CURRENT_STATUS" = "DELETE_FAILED" ]; then
-                        echo -e "${RED}  ✗ Stack deletion failed, retrying with force...${NC}"
-                        aws cloudformation delete-stack --stack-name "$stack" --region "$REGION"
-                        aws cloudformation wait stack-delete-complete --stack-name "$stack" --region "$REGION" 2>/dev/null || true
+                # Retry logic for stack deletion
+                MAX_RETRIES=3
+                RETRY_COUNT=0
+                while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+                    if aws cloudformation wait stack-delete-complete --stack-name "$stack" --region "$REGION" 2>/dev/null; then
+                        echo -e "${GREEN}  ✓ Stack deleted successfully${NC}"
+                        break
+                    else
+                        # Check current status
+                        CURRENT_STATUS=$(aws cloudformation describe-stacks \
+                            --stack-name "$stack" \
+                            --region "$REGION" \
+                            --query 'Stacks[0].StackStatus' \
+                            --output text 2>/dev/null || echo "DELETED")
+
+                        if [ "$CURRENT_STATUS" = "DELETED" ]; then
+                            echo -e "${GREEN}  ✓ Stack deleted successfully${NC}"
+                            break
+                        elif [ "$CURRENT_STATUS" = "DELETE_FAILED" ] || [ "$CURRENT_STATUS" = "UPDATE_ROLLBACK_COMPLETE" ]; then
+                            RETRY_COUNT=$((RETRY_COUNT + 1))
+                            if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                                echo -e "${YELLOW}  ⚠️  Stack in $CURRENT_STATUS state, retrying deletion (attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)...${NC}"
+                                aws cloudformation delete-stack --stack-name "$stack" --region "$REGION"
+                                sleep 5
+                            else
+                                echo -e "${RED}  ✗ Failed to delete stack after $MAX_RETRIES attempts. Manual intervention required.${NC}"
+                                exit 1
+                            fi
+                        else
+                            echo -e "${YELLOW}  ⏳ Stack status: $CURRENT_STATUS, waiting...${NC}"
+                            sleep 10
+                        fi
                     fi
-                }
-                echo -e "${GREEN}  ✓ Stack deleted successfully${NC}"
+                done
             else
                 echo -e "${YELLOW}  ⊘ Stack already being deleted or doesn't exist${NC}"
             fi
