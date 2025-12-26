@@ -12,6 +12,11 @@ on:
           - test
           - prod
         default: 'dev'
+      force_cleanup:
+        description: 'Force cleanup of orphaned tables (⚠️ Use with caution for prod)'
+        required: false
+        type: boolean
+        default: false
   # Only deploy automatically on main (prod) and develop (test)
   # Feature branches should use manual workflow_dispatch
   push:
@@ -160,23 +165,53 @@ jobs:
                 echo "item_count=$ITEM_COUNT" >> $GITHUB_OUTPUT
                 echo "⚠️ Orphaned table with $ITEM_COUNT items detected"
 
-                # For production, fail the deployment
-                if [ "$STAGE" = "prod" ]; then
+                # For production, fail unless force_cleanup is enabled
+                if [ "$STAGE" = "prod" ] && [ "${{ inputs.force_cleanup }}" != "true" ]; then
                   echo "::error::Orphaned production table detected! Manual intervention required."
-                  echo "::error::Use ./scripts/import-existing-table.sh prod to import the table"
+                  echo "::error::Options:"
+                  echo "::error::  1. Re-run workflow with 'force_cleanup' enabled to auto-backup and recreate"
+                  echo "::error::  2. Run locally: ./scripts/backup-table.sh prod && delete table && redeploy"
                   exit 1
                 fi
               fi
             fi
           fi
 
-      - name: Backup orphaned table (non-prod)
-        if: steps.check-table.outputs.orphaned_table == 'true' && needs.determine-environment.outputs.stage != 'prod'
+      - name: Backup orphaned table
+        if: steps.check-table.outputs.orphaned_table == 'true' && (needs.determine-environment.outputs.stage != 'prod' || inputs.force_cleanup == true)
         env:
           STAGE: ${{ needs.determine-environment.outputs.stage }}
         run: |
           echo "📦 Backing up orphaned table..."
           ./scripts/backup-table.sh $STAGE || true
+
+      - name: Delete orphaned table
+        if: steps.check-table.outputs.orphaned_table == 'true' && (needs.determine-environment.outputs.stage != 'prod' || inputs.force_cleanup == true)
+        env:
+          STAGE: ${{ needs.determine-environment.outputs.stage }}
+        run: |
+          TABLE_NAME="${STAGE}-main-table"
+
+          echo "🗑️ Deleting orphaned table (backup created)..."
+
+          # Disable deletion protection
+          aws dynamodb update-table \
+            --table-name "$TABLE_NAME" \
+            --no-deletion-protection-enabled \
+            --region ${{ env.AWS_REGION }} || true
+
+          # Delete the table
+          aws dynamodb delete-table \
+            --table-name "$TABLE_NAME" \
+            --region ${{ env.AWS_REGION }}
+
+          # Wait for deletion
+          echo "⏳ Waiting for table deletion..."
+          aws dynamodb wait table-not-exists \
+            --table-name "$TABLE_NAME" \
+            --region ${{ env.AWS_REGION }}
+
+          echo "✅ Table deleted successfully"
 
       - name: Deploy with Smart Deployment (Infrastructure + WebApp)
         id: deploy
@@ -202,6 +237,42 @@ jobs:
           retention-days: 30
         if: always()
 
+      - name: Upload backup artifacts
+        if: steps.check-table.outputs.orphaned_table == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: table-backup-${{ needs.determine-environment.outputs.stage }}
+          path: backups/
+          retention-days: 30
+
+      - name: Restore table data
+        if: steps.check-table.outputs.orphaned_table == 'true' && (needs.determine-environment.outputs.stage != 'prod' || inputs.force_cleanup == true)
+        id: restore
+        env:
+          STAGE: ${{ needs.determine-environment.outputs.stage }}
+        run: |
+          echo "🔄 Restoring table data from backup..."
+
+          # Find most recent backup
+          BACKUP_FILE=$(ls -t backups/${STAGE}-main-table-*.json 2>/dev/null | head -1)
+
+          if [ -n "$BACKUP_FILE" ] && [ -f "$BACKUP_FILE" ]; then
+            echo "Restoring from: $BACKUP_FILE"
+
+            if ./scripts/restore-table.sh $STAGE "$BACKUP_FILE"; then
+              RESTORED_COUNT=$(cat "$BACKUP_FILE" | jq -r '.Items | length')
+              echo "restored_count=$RESTORED_COUNT" >> $GITHUB_OUTPUT
+              echo "restore_status=success" >> $GITHUB_OUTPUT
+              echo "✅ Restored $RESTORED_COUNT items"
+            else
+              echo "restore_status=failed" >> $GITHUB_OUTPUT
+              echo "⚠️ Restore failed - check logs"
+            fi
+          else
+            echo "restore_status=no_backup" >> $GITHUB_OUTPUT
+            echo "⚠️ No backup file found"
+          fi
+
       - name: Validate deployment
         env:
           STAGE: ${{ needs.determine-environment.outputs.stage }}
@@ -214,6 +285,10 @@ jobs:
           STAGE="${{ needs.determine-environment.outputs.stage }}"
           WEBAPP_URL="${{ steps.deploy.outputs.webapp-url }}"
           API_URL="${{ steps.deploy.outputs.api-url }}"
+          ORPHANED_TABLE="${{ steps.check-table.outputs.orphaned_table }}"
+          RESTORE_STATUS="${{ steps.restore.outputs.restore_status }}"
+          RESTORED_COUNT="${{ steps.restore.outputs.restored_count }}"
+          FORCE_CLEANUP="${{ inputs.force_cleanup }}"
 
           # Read additional deployment outputs
           if [ -f ".deployment-outputs-${STAGE}.json" ]; then
@@ -224,6 +299,28 @@ jobs:
           echo "## Web App Deployment Summary 🚀" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "✅ Successfully deployed web app to **${STAGE}** environment with smart deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Add orphaned table handling info
+          if [ "$ORPHANED_TABLE" = "true" ]; then
+            echo "### 📦 Orphaned Table Handling" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            if [ "$FORCE_CLEANUP" = "true" ]; then
+              echo "⚠️ **Force cleanup enabled** - Orphaned table was backed up and recreated" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ Orphaned table detected and handled automatically" >> $GITHUB_STEP_SUMMARY
+            fi
+
+            if [ "$RESTORE_STATUS" = "success" ]; then
+              echo "- ✅ Successfully restored **${RESTORED_COUNT} items** from backup" >> $GITHUB_STEP_SUMMARY
+            elif [ "$RESTORE_STATUS" = "failed" ]; then
+              echo "- ⚠️ Restore failed - backup available in artifacts" >> $GITHUB_STEP_SUMMARY
+            elif [ "$RESTORE_STATUS" = "no_backup" ]; then
+              echo "- ⚠️ No backup found - table recreated empty" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Deployed Resources" >> $GITHUB_STEP_SUMMARY
           echo "- **Web App URL:** [${WEBAPP_URL}](${WEBAPP_URL})" >> $GITHUB_STEP_SUMMARY
