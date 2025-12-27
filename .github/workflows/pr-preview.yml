@@ -13,7 +13,7 @@ permissions:
   pull-requests: write  # For commenting on PRs
 
 env:
-  NODE_VERSION: '20'
+  NODE_VERSION: '25'
   AWS_REGION: 'us-east-1'
 
 jobs:
