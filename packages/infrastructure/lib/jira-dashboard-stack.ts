@@ -44,19 +44,19 @@ export class JiraDashboardStack extends cdk.Stack {
           allowedHeaders: ['*'],
         },
       ],
-      lifecycleRules: [
-        {
-          // Optionally archive old CSVs to Glacier after 90 days
-          transitions: isProdLike
-            ? [
-                {
-                  storageClass: s3.StorageClass.GLACIER,
-                  transitionAfter: cdk.Duration.days(90),
-                },
-              ]
-            : [],
-        },
-      ],
+      ...(isProdLike && {
+        lifecycleRules: [
+          {
+            // Archive old CSVs to Glacier after 90 days in production
+            transitions: [
+              {
+                storageClass: s3.StorageClass.GLACIER,
+                transitionAfter: cdk.Duration.days(90),
+              },
+            ],
+          },
+        ],
+      }),
     });
 
     // DynamoDB table for upload metadata
