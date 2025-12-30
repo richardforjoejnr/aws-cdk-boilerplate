@@ -189,7 +189,8 @@ echo -e "${YELLOW}GraphQL API Key:${NC}     $API_KEY"
 echo -e "${YELLOW}State Machine:${NC}       $STATE_MACHINE_ARN"
 
 if [ "$HAS_WEBAPP" = true ]; then
-    echo -e "${YELLOW}WebApp URL:${NC}          $WEBAPP_URL"
+    echo -e "${YELLOW}Main App URL:${NC}        $WEBAPP_URL"
+    echo -e "${YELLOW}Jira Dashboard URL:${NC}  ${WEBAPP_URL}/jira-dashboard.html"
     echo -e "${YELLOW}CloudFront Dist ID:${NC}  $DIST_ID"
     echo -e "${YELLOW}S3 Bucket:${NC}           $S3_BUCKET"
 fi
@@ -211,6 +212,7 @@ cat > "$OUTPUT_FILE" << EOF
   "apiKey": "$API_KEY",
   "stateMachineArn": "$STATE_MACHINE_ARN"$(if [ "$HAS_WEBAPP" = true ]; then echo ",
   \"webappUrl\": \"$WEBAPP_URL\",
+  \"jiraDashboardUrl\": \"${WEBAPP_URL}/jira-dashboard.html\",
   \"distributionId\": \"$DIST_ID\",
   \"s3BucketName\": \"$S3_BUCKET\""; fi)
 }
