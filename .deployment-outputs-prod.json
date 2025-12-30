@@ -1,0 +1,13 @@
+{
+  "stage": "prod",
+  "region": "us-east-1",
+  "accountId": "842822459513",
+  "tableName": "prod-main-table",
+  "lambdaName": "prod-hello-world",
+  "apiUrl": "https://dzzgjwabsvc5pibw6sszwmhqdy.appsync-api.us-east-1.amazonaws.com/graphql",
+  "apiKey": "da2-boesviim4jbybmbrzzlvefyaz4",
+  "stateMachineArn": "arn:aws:states:us-east-1:842822459513:stateMachine:prod-hello-world-state-machine",
+  "webappUrl": "https://d31mze6siahbw9.cloudfront.net",
+  "distributionId": "E1O99I8ZM7H6TX",
+  "s3BucketName": "prod-aws-boilerplate-webapp"
+}

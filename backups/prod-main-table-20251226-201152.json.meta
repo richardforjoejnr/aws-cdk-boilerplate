@@ -1,0 +1,9 @@
+{
+  "tableName": "prod-main-table",
+  "stage": "prod",
+  "timestamp": "20251226-201152",
+  "itemCount": 1,
+  "backupName": "prod-main-table-20251226-201152",
+  "backupArn": "arn:aws:dynamodb:us-east-1:842822459513:table/prod-main-table/backup/01766779916518-744500b2",
+  "region": "us-east-1"
+}
