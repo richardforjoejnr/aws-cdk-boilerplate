@@ -1,7 +1,7 @@
 import { S3Event } from 'aws-lambda';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, BatchWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, BatchWriteCommand, UpdateCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { parse } from 'csv-parse';
 import { Readable } from 'stream';
 
@@ -40,7 +40,26 @@ export const handler = async (event: S3Event): Promise<void> => {
     const key = decodeURIComponent(record.s3.object.key.replace(/\+/g, ' '));
     const uploadId = key.split('/')[0]; // Assuming format: uploadId/filename.csv
 
+    // Query to get the actual timestamp for this upload (before try block so it's available in catch)
+    let timestamp: string;
     try {
+      const uploadQuery = await dynamoClient.send(
+        new QueryCommand({
+          TableName: UPLOADS_TABLE,
+          KeyConditionExpression: 'uploadId = :uploadId',
+          ExpressionAttributeValues: {
+            ':uploadId': uploadId,
+          },
+          Limit: 1,
+        })
+      );
+
+      if (!uploadQuery.Items || uploadQuery.Items.length === 0) {
+        throw new Error(`Upload record not found for uploadId: ${uploadId}`);
+      }
+
+      timestamp = uploadQuery.Items[0].timestamp;
+
       console.log(`Processing CSV file: ${key} from bucket: ${bucket}`);
 
       // Update upload status to processing
@@ -49,7 +68,7 @@ export const handler = async (event: S3Event): Promise<void> => {
           TableName: UPLOADS_TABLE,
           Key: {
             uploadId,
-            timestamp: uploadId, // Using uploadId as timestamp for simplicity
+            timestamp,
           },
           UpdateExpression: 'SET #status = :status, updatedAt = :updatedAt, processedIssues = :processedIssues, totalIssues = :totalIssues',
           ExpressionAttributeNames: {
@@ -147,7 +166,7 @@ export const handler = async (event: S3Event): Promise<void> => {
           TableName: UPLOADS_TABLE,
           Key: {
             uploadId,
-            timestamp: uploadId,
+            timestamp,
           },
           UpdateExpression: 'SET totalIssues = :totalIssues, updatedAt = :updatedAt',
           ExpressionAttributeValues: {
@@ -192,7 +211,7 @@ export const handler = async (event: S3Event): Promise<void> => {
               TableName: UPLOADS_TABLE,
               Key: {
                 uploadId,
-                timestamp: uploadId,
+                timestamp,
               },
               UpdateExpression: 'SET processedIssues = :processedIssues, updatedAt = :updatedAt',
               ExpressionAttributeValues: {
@@ -216,7 +235,7 @@ export const handler = async (event: S3Event): Promise<void> => {
           TableName: UPLOADS_TABLE,
           Key: {
             uploadId,
-            timestamp: uploadId,
+            timestamp,
           },
           UpdateExpression: 'SET #status = :status, updatedAt = :updatedAt, totalIssues = :totalIssues, metrics = :metrics, fileName = :fileName',
           ExpressionAttributeNames: {
@@ -236,28 +255,32 @@ export const handler = async (event: S3Event): Promise<void> => {
     } catch (error) {
       console.error(`Error processing ${key}:`, error);
 
-      // Update upload status to failed
-      try {
-        await dynamoClient.send(
-          new UpdateCommand({
-            TableName: UPLOADS_TABLE,
-            Key: {
-              uploadId,
-              timestamp: uploadId,
-            },
-            UpdateExpression: 'SET #status = :status, updatedAt = :updatedAt, errorMessage = :errorMessage',
-            ExpressionAttributeNames: {
-              '#status': 'status',
-            },
-            ExpressionAttributeValues: {
-              ':status': 'failed',
-              ':updatedAt': new Date().toISOString(),
-              ':errorMessage': error instanceof Error ? error.message : String(error),
-            },
-          })
-        );
-      } catch (updateError) {
-        console.error('Error updating upload status to failed:', updateError);
+      // Update upload status to failed (only if we have timestamp)
+      if (timestamp) {
+        try {
+          await dynamoClient.send(
+            new UpdateCommand({
+              TableName: UPLOADS_TABLE,
+              Key: {
+                uploadId,
+                timestamp,
+              },
+              UpdateExpression: 'SET #status = :status, updatedAt = :updatedAt, errorMessage = :errorMessage',
+              ExpressionAttributeNames: {
+                '#status': 'status',
+              },
+              ExpressionAttributeValues: {
+                ':status': 'failed',
+                ':updatedAt': new Date().toISOString(),
+                ':errorMessage': error instanceof Error ? error.message : String(error),
+              },
+            })
+          );
+        } catch (updateError) {
+          console.error('Error updating upload status to failed:', updateError);
+        }
+      } else {
+        console.error('Cannot update upload status - timestamp not found');
       }
 
       throw error;
