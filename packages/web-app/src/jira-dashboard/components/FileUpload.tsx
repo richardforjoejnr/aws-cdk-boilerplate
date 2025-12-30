@@ -12,7 +12,6 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete }) => {
   const [progress, setProgress] = useState<string>('');
   const [progressPercent, setProgressPercent] = useState<number>(0);
   const [error, setError] = useState<string>('');
-  const [currentUploadId, setCurrentUploadId] = useState<string | null>(null);
   const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -36,7 +35,6 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete }) => {
     setUploading(false);
     setProgress('');
     setProgressPercent(0);
-    setCurrentUploadId(null);
   };
 
   const pollUploadStatus = async (uploadId: string) => {
@@ -84,7 +82,6 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete }) => {
     try {
       // Step 1: Get presigned URL
       const { uploadId, presignedUrl } = await jiraApi.getUploadUrl(file.name, description);
-      setCurrentUploadId(uploadId);
 
       // Step 2: Upload file to S3
       setProgress('Uploading file to S3...');
