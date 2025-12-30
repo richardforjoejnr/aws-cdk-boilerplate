@@ -48,8 +48,8 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
             new DeleteCommand({
               TableName: ISSUES_TABLE,
               Key: {
-                issueKey: item.issueKey,
-                uploadId: item.uploadId,
+                issueKey: item.issueKey as string,
+                uploadId: item.uploadId as string,
               },
             })
           )
@@ -95,8 +95,8 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         new DeleteCommand({
           TableName: UPLOADS_TABLE,
           Key: {
-            uploadId: uploadQuery.Items[0].uploadId,
-            timestamp: uploadQuery.Items[0].timestamp,
+            uploadId: uploadQuery.Items[0].uploadId as string,
+            timestamp: uploadQuery.Items[0].timestamp as string,
           },
         })
       );

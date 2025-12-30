@@ -6,6 +6,15 @@ const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
 const UPLOADS_TABLE = process.env.UPLOADS_TABLE!;
 
+interface UploadRecord {
+  uploadId: string;
+  timestamp: string;
+  fileName?: string;
+  status: string;
+  createdAt?: string;
+  [key: string]: unknown;
+}
+
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
   console.log('Event:', JSON.stringify(event, null, 2));
 
@@ -28,18 +37,19 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     );
 
     // Deduplicate by uploadId - keep most recent (which should be first due to sort order)
-    const uploadsMap = new Map();
+    const uploadsMap = new Map<string, UploadRecord>();
     for (const item of result.Items || []) {
-      if (!uploadsMap.has(item.uploadId)) {
-        uploadsMap.set(item.uploadId, item);
+      const upload = item as UploadRecord;
+      if (!uploadsMap.has(upload.uploadId)) {
+        uploadsMap.set(upload.uploadId, upload);
       } else {
         // If duplicate exists, prefer the one with more complete data (has fileName)
-        const existing = uploadsMap.get(item.uploadId);
-        if (item.fileName && !existing.fileName) {
-          uploadsMap.set(item.uploadId, item);
-        } else if (item.status === 'failed' && existing.status === 'pending') {
+        const existing = uploadsMap.get(upload.uploadId);
+        if (existing && upload.fileName && !existing.fileName) {
+          uploadsMap.set(upload.uploadId, upload);
+        } else if (existing && upload.status === 'failed' && existing.status === 'pending') {
           // Prefer failed status over pending for stuck uploads
-          uploadsMap.set(item.uploadId, item);
+          uploadsMap.set(upload.uploadId, upload);
         }
       }
     }

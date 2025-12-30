@@ -41,7 +41,7 @@ export const handler = async (event: S3Event): Promise<void> => {
     const uploadId = key.split('/')[0]; // Assuming format: uploadId/filename.csv
 
     // Query to get the actual timestamp for this upload (before try block so it's available in catch)
-    let timestamp: string;
+    let timestamp: string | undefined;
     try {
       const uploadQuery = await dynamoClient.send(
         new QueryCommand({
@@ -58,7 +58,7 @@ export const handler = async (event: S3Event): Promise<void> => {
         throw new Error(`Upload record not found for uploadId: ${uploadId}`);
       }
 
-      timestamp = uploadQuery.Items[0].timestamp;
+      timestamp = uploadQuery.Items[0].timestamp as string;
 
       console.log(`Processing CSV file: ${key} from bucket: ${bucket}`);
 

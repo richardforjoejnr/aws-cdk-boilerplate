@@ -15,7 +15,7 @@ interface JiraIssue {
   assignee: string;
   created: string;
   resolved?: string;
-  [key: string]: any;
+  [key: string]: string | undefined;
 }
 
 interface FinalizeInput {
@@ -32,7 +32,7 @@ export const handler = async (event: FinalizeInput): Promise<{ status: string }>
   try {
     // Query all issues for this upload to calculate metrics
     const issues: JiraIssue[] = [];
-    let lastEvaluatedKey: any = undefined;
+    let lastEvaluatedKey: Record<string, unknown> | undefined = undefined;
 
     do {
       const result = await dynamoClient.send(
@@ -51,7 +51,7 @@ export const handler = async (event: FinalizeInput): Promise<{ status: string }>
         issues.push(...(result.Items as JiraIssue[]));
       }
 
-      lastEvaluatedKey = result.LastEvaluatedKey;
+      lastEvaluatedKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
     } while (lastEvaluatedKey);
 
     console.log(`Found ${issues.length} total issues for upload ${uploadId}`);

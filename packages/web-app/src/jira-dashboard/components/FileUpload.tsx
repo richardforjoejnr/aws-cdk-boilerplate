@@ -25,6 +25,64 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete }) => {
     }
   };
 
+  const validateCSV = async (file: File): Promise<{ valid: boolean; error?: string; rowCount?: number }> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+
+      reader.onload = (e) => {
+        try {
+          const text = e.target?.result as string;
+          if (!text) {
+            resolve({ valid: false, error: 'File is empty' });
+            return;
+          }
+
+          // Basic validation: check for header and at least one data row
+          const lines = text.split('\n');
+          const nonEmptyLines = lines.filter(line => line.trim().length > 0);
+
+          if (nonEmptyLines.length < 2) {
+            resolve({ valid: false, error: 'CSV must have a header row and at least one data row' });
+            return;
+          }
+
+          // Check for required Jira columns
+          const header = nonEmptyLines[0].toLowerCase();
+          const requiredColumns = ['issue key', 'summary', 'status'];
+          const missingColumns = requiredColumns.filter(col => !header.includes(col));
+
+          if (missingColumns.length > 0) {
+            resolve({
+              valid: false,
+              error: `CSV is missing required Jira columns: ${missingColumns.join(', ')}`
+            });
+            return;
+          }
+
+          // Count quotes to detect unclosed quotes
+          const quoteCount = (text.match(/"/g) || []).length;
+          if (quoteCount % 2 !== 0) {
+            resolve({
+              valid: false,
+              error: 'CSV has unclosed quotes. Please ensure all quoted fields are properly closed.'
+            });
+            return;
+          }
+
+          resolve({ valid: true, rowCount: nonEmptyLines.length - 1 });
+        } catch (err) {
+          resolve({ valid: false, error: 'Failed to read CSV file' });
+        }
+      };
+
+      reader.onerror = () => {
+        resolve({ valid: false, error: 'Failed to read file' });
+      };
+
+      reader.readAsText(file);
+    });
+  };
+
   const handleUpload = async () => {
     if (!file) {
       setError('Please select a file');
@@ -32,18 +90,28 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete }) => {
     }
 
     setUploading(true);
-    setProgress('Getting upload URL...');
+    setProgress('Validating CSV...');
     setError('');
 
     try {
-      // Step 1: Get presigned URL
+      // Step 1: Validate CSV
+      const validation = await validateCSV(file);
+      if (!validation.valid) {
+        setError(validation.error || 'Invalid CSV file');
+        setUploading(false);
+        return;
+      }
+
+      setProgress(`CSV validated (${validation.rowCount} rows). Getting upload URL...`);
+
+      // Step 2: Get presigned URL
       const { uploadId, presignedUrl} = await jiraApi.getUploadUrl(file.name, description);
 
-      // Step 2: Upload file to S3
+      // Step 3: Upload file to S3
       setProgress('Uploading file...');
       await jiraApi.uploadCsvFile(presignedUrl, file);
 
-      // Step 3: Complete
+      // Step 4: Complete
       setProgress('Upload complete! Processing CSV...');
       setTimeout(() => {
         onUploadComplete(uploadId);

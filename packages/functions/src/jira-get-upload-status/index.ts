@@ -46,7 +46,13 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       };
     }
 
-    const upload = result.Items[0];
+    const upload = result.Items[0] as {
+      uploadId: string;
+      status: string;
+      totalIssues?: number;
+      processedIssues?: number;
+      errorMessage?: string;
+    };
 
     return {
       statusCode: 200,

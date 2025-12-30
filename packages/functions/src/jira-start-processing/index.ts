@@ -39,7 +39,7 @@ export const handler = async (event: S3Event): Promise<void> => {
         continue;
       }
 
-      const timestamp = uploadQuery.Items[0].timestamp;
+      const timestamp = uploadQuery.Items[0].timestamp as string;
 
       // Update status to processing
       await dynamoClient.send(
@@ -98,7 +98,7 @@ export const handler = async (event: S3Event): Promise<void> => {
         );
 
         if (uploadQuery.Items && uploadQuery.Items.length > 0) {
-          const timestamp = uploadQuery.Items[0].timestamp;
+          const timestamp = uploadQuery.Items[0].timestamp as string;
           await dynamoClient.send(
             new UpdateCommand({
               TableName: UPLOADS_TABLE,
