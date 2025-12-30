@@ -14,6 +14,24 @@ export const HomePage: React.FC = () => {
     loadUploads();
   }, []);
 
+  // Auto-refresh uploads list when there are processing uploads
+  useEffect(() => {
+    const hasProcessingUploads = uploads.some(
+      (upload) => upload.status === 'processing' || upload.status === 'pending'
+    );
+
+    if (!hasProcessingUploads) {
+      return;
+    }
+
+    // Poll every 2 seconds
+    const interval = setInterval(() => {
+      loadUploads();
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [uploads]);
+
   const loadUploads = async () => {
     try {
       const data = await jiraApi.listUploads();
@@ -97,7 +115,13 @@ export const HomePage: React.FC = () => {
                       </div>
                       <div style={styles.uploadStats}>
                         <span style={getStatusStyle(upload.status)}>{upload.status.toUpperCase()}</span>
-                        {upload.totalIssues && <span style={styles.issueCount}>{upload.totalIssues} issues</span>}
+                        {upload.status === 'processing' && upload.processedIssues !== undefined && upload.totalIssues ? (
+                          <span style={styles.progressText}>
+                            {upload.processedIssues}/{upload.totalIssues} issues ({Math.round((upload.processedIssues / upload.totalIssues) * 100)}%)
+                          </span>
+                        ) : upload.totalIssues ? (
+                          <span style={styles.issueCount}>{upload.totalIssues} issues</span>
+                        ) : null}
                       </div>
                     </div>
                     <div style={styles.uploadActions}>
@@ -278,6 +302,11 @@ const styles: Record<string, React.CSSProperties> = {
   issueCount: {
     fontSize: '13px',
     color: '#666',
+  },
+  progressText: {
+    fontSize: '13px',
+    color: '#856404',
+    fontWeight: '600',
   },
   uploadActions: {
     display: 'flex',

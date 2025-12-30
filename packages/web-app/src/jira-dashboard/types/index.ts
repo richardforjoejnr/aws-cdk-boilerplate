@@ -5,6 +5,7 @@ export interface Upload {
   description?: string;
   status: 'pending' | 'processing' | 'completed' | 'failed';
   totalIssues?: number;
+  processedIssues?: number;
   createdAt: string;
   updatedAt?: string;
   errorMessage?: string;
