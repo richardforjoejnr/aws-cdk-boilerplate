@@ -4,8 +4,6 @@ import { HistoricalData } from '../types';
 import jiraApi from '../services/api';
 import { format } from 'date-fns';
 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
-
 export const HistoricalDashboard: React.FC = () => {
   const [data, setData] = useState<HistoricalData | null>(null);
   const [loading, setLoading] = useState(true);

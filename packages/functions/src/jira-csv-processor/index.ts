@@ -97,7 +97,23 @@ export const handler = async (event: S3Event): Promise<void> => {
           rowCount++;
           const record = row as CsvRecord;
 
-          // Map CSV columns to our schema
+          // Map CSV columns to our schema - extract known fields first
+          const {
+            'Summary': _summary,
+            'Issue key': _issueKey,
+            'Issue id': _issueId,
+            'Issue Type': _issueType,
+            'Status': _status,
+            'Priority': _priority,
+            'Assignee': _assignee,
+            'Created': _created,
+            'Updated': _updated,
+            'Resolved': _resolved,
+            'Project key': _projectKey,
+            'Project name': _projectName,
+            ...otherFields
+          } = record;
+
           const issue: JiraIssue = {
             summary: record['Summary'] || '',
             issueKey: record['Issue key'] || '',
@@ -111,8 +127,7 @@ export const handler = async (event: S3Event): Promise<void> => {
             resolved: record['Resolved'] || undefined,
             projectKey: record['Project key'] || '',
             projectName: record['Project name'] || '',
-            // Store all other fields as well
-            ...record,
+            ...otherFields,
           };
 
           issues.push(issue);
@@ -134,9 +149,9 @@ export const handler = async (event: S3Event): Promise<void> => {
         const putRequests = batch.map((issue) => ({
           PutRequest: {
             Item: {
+              ...issue,
               issueKey: issue.issueKey,
               uploadId,
-              ...issue,
               uploadedAt: new Date().toISOString(),
             },
           },

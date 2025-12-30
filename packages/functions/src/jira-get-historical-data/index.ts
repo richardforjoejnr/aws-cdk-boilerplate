@@ -27,6 +27,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     );
 
     interface UploadItem {
+      uploadId: string;
       status: string;
       timestamp: string;
       fileName: string;
@@ -99,7 +100,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         trends,
         aggregateStats,
         uploads: uploads.map((u) => ({
-          uploadId: (u as { uploadId: string }).uploadId,
+          uploadId: u.uploadId,
           timestamp: u.timestamp,
           fileName: u.fileName,
           totalIssues: u.totalIssues,
