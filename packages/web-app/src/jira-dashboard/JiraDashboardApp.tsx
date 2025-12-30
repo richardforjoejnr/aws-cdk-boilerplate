@@ -6,7 +6,7 @@ import { HistoricalPage } from './pages/HistoricalPage';
 
 export const JiraDashboardApp: React.FC = () => {
   return (
-    <Router>
+    <Router basename="/jira-dashboard.html">
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/dashboard/:uploadId" element={<DashboardPage />} />

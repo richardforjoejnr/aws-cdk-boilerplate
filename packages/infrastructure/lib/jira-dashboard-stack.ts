@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import { NodejsFunction, OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
 import { Construct } from 'constructs';
@@ -172,17 +173,21 @@ export class JiraDashboardStack extends cdk.Stack {
     });
 
     // Lambda function for CSV processing
-    const csvProcessorFunction = new lambda.Function(this, 'CsvProcessorFunction', {
+    const csvProcessorFunction = new NodejsFunction(this, 'CsvProcessorFunction', {
       functionName: `${stage}-jira-csv-processor`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../../functions/dist/jira-csv-processor')),
+      handler: 'handler',
+      entry: path.join(__dirname, '../../functions/src/jira-csv-processor/index.ts'),
       timeout: cdk.Duration.minutes(15),
       memorySize: 3008,
       environment: {
         UPLOADS_TABLE: this.uploadsTable.tableName,
         ISSUES_TABLE: this.issuesTable.tableName,
         CSV_BUCKET: this.csvBucket.bucketName,
+      },
+      bundling: {
+        externalModules: ['@aws-sdk/*'], // AWS SDK v3 is available in Lambda runtime
+        format: OutputFormat.ESM,
       },
     });
 
@@ -199,15 +204,19 @@ export class JiraDashboardStack extends cdk.Stack {
     );
 
     // Lambda function for getting upload presigned URL
-    const getUploadUrlFunction = new lambda.Function(this, 'GetUploadUrlFunction', {
+    const getUploadUrlFunction = new NodejsFunction(this, 'GetUploadUrlFunction', {
       functionName: `${stage}-jira-get-upload-url`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../../functions/dist/jira-get-upload-url')),
+      handler: 'handler',
+      entry: path.join(__dirname, '../../functions/src/jira-get-upload-url/index.ts'),
       timeout: cdk.Duration.seconds(30),
       environment: {
         CSV_BUCKET: this.csvBucket.bucketName,
         UPLOADS_TABLE: this.uploadsTable.tableName,
+      },
+      bundling: {
+        externalModules: ['@aws-sdk/*'],
+        format: OutputFormat.ESM,
       },
     });
 
@@ -215,16 +224,20 @@ export class JiraDashboardStack extends cdk.Stack {
     this.uploadsTable.grantWriteData(getUploadUrlFunction);
 
     // Lambda function for getting dashboard data
-    const getDashboardDataFunction = new lambda.Function(this, 'GetDashboardDataFunction', {
+    const getDashboardDataFunction = new NodejsFunction(this, 'GetDashboardDataFunction', {
       functionName: `${stage}-jira-get-dashboard-data`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../../functions/dist/jira-get-dashboard-data')),
+      handler: 'handler',
+      entry: path.join(__dirname, '../../functions/src/jira-get-dashboard-data/index.ts'),
       timeout: cdk.Duration.seconds(30),
       memorySize: 1024,
       environment: {
         UPLOADS_TABLE: this.uploadsTable.tableName,
         ISSUES_TABLE: this.issuesTable.tableName,
+      },
+      bundling: {
+        externalModules: ['@aws-sdk/*'],
+        format: OutputFormat.ESM,
       },
     });
 
@@ -232,16 +245,20 @@ export class JiraDashboardStack extends cdk.Stack {
     this.issuesTable.grantReadData(getDashboardDataFunction);
 
     // Lambda function for getting historical data
-    const getHistoricalDataFunction = new lambda.Function(this, 'GetHistoricalDataFunction', {
+    const getHistoricalDataFunction = new NodejsFunction(this, 'GetHistoricalDataFunction', {
       functionName: `${stage}-jira-get-historical-data`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../../functions/dist/jira-get-historical-data')),
+      handler: 'handler',
+      entry: path.join(__dirname, '../../functions/src/jira-get-historical-data/index.ts'),
       timeout: cdk.Duration.seconds(30),
       memorySize: 1024,
       environment: {
         UPLOADS_TABLE: this.uploadsTable.tableName,
         ISSUES_TABLE: this.issuesTable.tableName,
+      },
+      bundling: {
+        externalModules: ['@aws-sdk/*'],
+        format: OutputFormat.ESM,
       },
     });
 
@@ -249,14 +266,18 @@ export class JiraDashboardStack extends cdk.Stack {
     this.issuesTable.grantReadData(getHistoricalDataFunction);
 
     // Lambda function for listing uploads
-    const listUploadsFunction = new lambda.Function(this, 'ListUploadsFunction', {
+    const listUploadsFunction = new NodejsFunction(this, 'ListUploadsFunction', {
       functionName: `${stage}-jira-list-uploads`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../../functions/dist/jira-list-uploads')),
+      handler: 'handler',
+      entry: path.join(__dirname, '../../functions/src/jira-list-uploads/index.ts'),
       timeout: cdk.Duration.seconds(30),
       environment: {
         UPLOADS_TABLE: this.uploadsTable.tableName,
+      },
+      bundling: {
+        externalModules: ['@aws-sdk/*'],
+        format: OutputFormat.ESM,
       },
     });
 
