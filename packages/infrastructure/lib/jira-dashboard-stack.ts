@@ -283,6 +283,47 @@ export class JiraDashboardStack extends cdk.Stack {
 
     this.uploadsTable.grantReadData(listUploadsFunction);
 
+    // Lambda function for deleting uploads
+    const deleteUploadFunction = new NodejsFunction(this, 'DeleteUploadFunction', {
+      functionName: `${stage}-jira-delete-upload`,
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'handler',
+      entry: path.join(__dirname, '../../functions/src/jira-delete-upload/index.ts'),
+      timeout: cdk.Duration.seconds(60),
+      environment: {
+        CSV_BUCKET: this.csvBucket.bucketName,
+        UPLOADS_TABLE: this.uploadsTable.tableName,
+        ISSUES_TABLE: this.issuesTable.tableName,
+      },
+      bundling: {
+        externalModules: ['@aws-sdk/*'],
+        format: OutputFormat.ESM,
+      },
+    });
+
+    this.csvBucket.grantDelete(deleteUploadFunction);
+    this.csvBucket.grantRead(deleteUploadFunction);
+    this.uploadsTable.grantReadWriteData(deleteUploadFunction);
+    this.issuesTable.grantReadWriteData(deleteUploadFunction);
+
+    // Lambda function for getting upload status
+    const getUploadStatusFunction = new NodejsFunction(this, 'GetUploadStatusFunction', {
+      functionName: `${stage}-jira-get-upload-status`,
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'handler',
+      entry: path.join(__dirname, '../../functions/src/jira-get-upload-status/index.ts'),
+      timeout: cdk.Duration.seconds(10),
+      environment: {
+        UPLOADS_TABLE: this.uploadsTable.tableName,
+      },
+      bundling: {
+        externalModules: ['@aws-sdk/*'],
+        format: OutputFormat.ESM,
+      },
+    });
+
+    this.uploadsTable.grantReadData(getUploadStatusFunction);
+
     // API Gateway REST API
     this.api = new apigateway.RestApi(this, 'JiraDashboardApi', {
       restApiName: `${stage}-jira-dashboard-api`,
@@ -320,6 +361,20 @@ export class JiraDashboardStack extends cdk.Stack {
     uploadsResource.addMethod(
       'POST',
       new apigateway.LambdaIntegration(getUploadUrlFunction)
+    );
+
+    // DELETE /uploads/{uploadId} - Delete an upload
+    const uploadResource = uploadsResource.addResource('{uploadId}');
+    uploadResource.addMethod(
+      'DELETE',
+      new apigateway.LambdaIntegration(deleteUploadFunction)
+    );
+
+    // GET /uploads/{uploadId}/status - Get upload processing status
+    const uploadStatusResource = uploadResource.addResource('status');
+    uploadStatusResource.addMethod(
+      'GET',
+      new apigateway.LambdaIntegration(getUploadStatusFunction)
     );
 
     // GET /dashboard/{uploadId} - Get dashboard data for specific upload

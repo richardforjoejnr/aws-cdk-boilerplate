@@ -10,7 +10,10 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete }) => {
   const [description, setDescription] = useState('');
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState<string>('');
+  const [progressPercent, setProgressPercent] = useState<number>(0);
   const [error, setError] = useState<string>('');
+  const [currentUploadId, setCurrentUploadId] = useState<string | null>(null);
+  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -25,6 +28,48 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete }) => {
     }
   };
 
+  const cancelUpload = () => {
+    if (pollingInterval) {
+      clearInterval(pollingInterval);
+      setPollingInterval(null);
+    }
+    setUploading(false);
+    setProgress('');
+    setProgressPercent(0);
+    setCurrentUploadId(null);
+  };
+
+  const pollUploadStatus = async (uploadId: string) => {
+    try {
+      const status = await jiraApi.getUploadStatus(uploadId);
+
+      if (status.status === 'processing') {
+        setProgress(`Processing CSV... ${status.progress}%`);
+        setProgressPercent(status.progress);
+      } else if (status.status === 'completed') {
+        setProgress('Processing complete!');
+        setProgressPercent(100);
+        if (pollingInterval) {
+          clearInterval(pollingInterval);
+          setPollingInterval(null);
+        }
+        setTimeout(() => {
+          onUploadComplete(uploadId);
+        }, 1000);
+      } else if (status.status === 'failed') {
+        setError(status.errorMessage || 'Processing failed');
+        setUploading(false);
+        setProgressPercent(0);
+        if (pollingInterval) {
+          clearInterval(pollingInterval);
+          setPollingInterval(null);
+        }
+      }
+    } catch (err) {
+      console.error('Error polling status:', err);
+    }
+  };
+
   const handleUpload = async () => {
     if (!file) {
       setError('Please select a file');
@@ -33,23 +78,33 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete }) => {
 
     setUploading(true);
     setProgress('Getting upload URL...');
+    setProgressPercent(0);
     setError('');
 
     try {
       // Step 1: Get presigned URL
       const { uploadId, presignedUrl } = await jiraApi.getUploadUrl(file.name, description);
+      setCurrentUploadId(uploadId);
 
       // Step 2: Upload file to S3
-      setProgress('Uploading file...');
+      setProgress('Uploading file to S3...');
+      setProgressPercent(10);
       await jiraApi.uploadCsvFile(presignedUrl, file);
 
-      // Step 3: Complete
+      // Step 3: Start polling for status
       setProgress('Upload complete! Processing CSV...');
-      setTimeout(() => {
-        onUploadComplete(uploadId);
-      }, 2000);
+      setProgressPercent(20);
 
-      // Reset form
+      // Poll every 2 seconds
+      const interval = setInterval(() => {
+        pollUploadStatus(uploadId);
+      }, 2000);
+      setPollingInterval(interval);
+
+      // Initial status check
+      await pollUploadStatus(uploadId);
+
+      // Reset file selection
       setFile(null);
       setDescription('');
       if (document.getElementById('file-input')) {
@@ -58,9 +113,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete }) => {
     } catch (err) {
       console.error('Upload error:', err);
       setError(err instanceof Error ? err.message : 'Upload failed');
-    } finally {
       setUploading(false);
-      setTimeout(() => setProgress(''), 3000);
+      setProgressPercent(0);
     }
   };
 
@@ -104,7 +158,25 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete }) => {
         {uploading ? 'Uploading...' : 'Upload CSV'}
       </button>
 
-      {progress && <p style={styles.progress}>{progress}</p>}
+      {uploading && (
+        <button
+          onClick={cancelUpload}
+          style={styles.cancelButton}
+        >
+          Cancel Upload
+        </button>
+      )}
+
+      {progress && (
+        <div style={styles.progressContainer}>
+          <p style={styles.progress}>{progress}</p>
+          {progressPercent > 0 && (
+            <div style={styles.progressBarContainer}>
+              <div style={{...styles.progressBar, width: `${progressPercent}%`}} />
+            </div>
+          )}
+        </div>
+      )}
       {error && <p style={styles.error}>{error}</p>}
 
       <div style={styles.instructions}>
@@ -181,13 +253,47 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: '#ccc',
     cursor: 'not-allowed',
   },
-  progress: {
+  cancelButton: {
+    width: '100%',
+    padding: '10px 24px',
+    marginTop: '12px',
+    backgroundColor: '#dc3545',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '14px',
+    fontWeight: '500',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+  },
+  progressContainer: {
     marginTop: '16px',
+  },
+  progress: {
     padding: '12px',
     backgroundColor: '#e7f3ff',
     color: '#0066cc',
     borderRadius: '4px',
     textAlign: 'center',
+    marginBottom: '8px',
+  },
+  progressBarContainer: {
+    width: '100%',
+    height: '24px',
+    backgroundColor: '#e9ecef',
+    borderRadius: '12px',
+    overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%',
+    backgroundColor: '#0066cc',
+    transition: 'width 0.3s ease-in-out',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: '#fff',
+    fontSize: '12px',
+    fontWeight: '600',
   },
   error: {
     marginTop: '16px',

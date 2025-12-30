@@ -41,6 +41,21 @@ export const HomePage: React.FC = () => {
     navigate('/historical');
   };
 
+  const handleDeleteUpload = async (uploadId: string, fileName: string) => {
+    if (!window.confirm(`Are you sure you want to delete "${fileName}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      await jiraApi.deleteUpload(uploadId);
+      // Reload the uploads list
+      loadUploads();
+    } catch (error) {
+      console.error('Error deleting upload:', error);
+      alert('Failed to delete upload. Please try again.');
+    }
+  };
+
   return (
     <div style={styles.container}>
       <div style={styles.header}>
@@ -85,14 +100,23 @@ export const HomePage: React.FC = () => {
                         {upload.totalIssues && <span style={styles.issueCount}>{upload.totalIssues} issues</span>}
                       </div>
                     </div>
-                    {upload.status === 'completed' && (
+                    <div style={styles.uploadActions}>
+                      {upload.status === 'completed' && (
+                        <button
+                          onClick={() => handleViewDashboard(upload.uploadId)}
+                          style={styles.viewButton}
+                        >
+                          View Dashboard
+                        </button>
+                      )}
                       <button
-                        onClick={() => handleViewDashboard(upload.uploadId)}
-                        style={styles.viewButton}
+                        onClick={() => handleDeleteUpload(upload.uploadId, upload.fileName)}
+                        style={styles.deleteButton}
+                        title={`Delete ${upload.fileName}`}
                       >
-                        View Dashboard
+                        Delete
                       </button>
-                    )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -255,9 +279,25 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '13px',
     color: '#666',
   },
+  uploadActions: {
+    display: 'flex',
+    gap: '8px',
+    alignItems: 'center',
+  },
   viewButton: {
     padding: '8px 16px',
     backgroundColor: '#0066cc',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: '14px',
+    fontWeight: '500',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+  },
+  deleteButton: {
+    padding: '8px 16px',
+    backgroundColor: '#dc3545',
     color: '#fff',
     border: 'none',
     borderRadius: '6px',

@@ -47,6 +47,25 @@ export const jiraApi = {
     const response = await api.get<HistoricalData>('/historical');
     return response.data;
   },
+
+  // Delete an upload
+  deleteUpload: async (uploadId: string) => {
+    const response = await api.delete<{ message: string; uploadId: string }>(`/uploads/${uploadId}`);
+    return response.data;
+  },
+
+  // Get upload processing status
+  getUploadStatus: async (uploadId: string) => {
+    const response = await api.get<{
+      uploadId: string;
+      status: string;
+      totalIssues: number;
+      processedIssues: number;
+      progress: number;
+      errorMessage?: string;
+    }>(`/uploads/${uploadId}/status`);
+    return response.data;
+  },
 };
 
 export default jiraApi;
