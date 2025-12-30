@@ -207,7 +207,11 @@ jobs:
             Your preview environment is ready!
 
             **Environment:** \`${envName}\`
-            **Web App:** ${webappUrl}
+
+            ### 📱 Application URLs
+            - **Main App:** ${webappUrl}
+            - **Jira Dashboard:** ${webappUrl}/jira-dashboard.html
+
             **GraphQL API:** ${apiUrl}
 
             `;
