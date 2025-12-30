@@ -5,6 +5,9 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction, OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
+import * as sfn from 'aws-cdk-lib/aws-stepfunctions';
+import * as tasks from 'aws-cdk-lib/aws-stepfunctions-tasks';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -196,10 +199,96 @@ export class JiraDashboardStack extends cdk.Stack {
     this.uploadsTable.grantReadWriteData(csvProcessorFunction);
     this.issuesTable.grantReadWriteData(csvProcessorFunction);
 
-    // Add S3 event notification to trigger Lambda on CSV upload
+    // Lambda function for batch processing CSV rows
+    const processBatchFunction = new NodejsFunction(this, 'ProcessBatchFunction', {
+      functionName: `${stage}-jira-process-batch`,
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'handler',
+      entry: path.join(__dirname, '../../functions/src/jira-process-batch/index.ts'),
+      timeout: cdk.Duration.minutes(15),
+      memorySize: 3008,
+      environment: {
+        UPLOADS_TABLE: this.uploadsTable.tableName,
+        ISSUES_TABLE: this.issuesTable.tableName,
+      },
+      bundling: {
+        externalModules: ['@aws-sdk/*'],
+        format: OutputFormat.ESM,
+      },
+    });
+
+    this.csvBucket.grantRead(processBatchFunction);
+    this.uploadsTable.grantReadWriteData(processBatchFunction);
+    this.issuesTable.grantReadWriteData(processBatchFunction);
+
+    // Lambda function for finalizing upload
+    const finalizeUploadFunction = new NodejsFunction(this, 'FinalizeUploadFunction', {
+      functionName: `${stage}-jira-finalize-upload`,
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'handler',
+      entry: path.join(__dirname, '../../functions/src/jira-finalize-upload/index.ts'),
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 1024,
+      environment: {
+        UPLOADS_TABLE: this.uploadsTable.tableName,
+        ISSUES_TABLE: this.issuesTable.tableName,
+      },
+      bundling: {
+        externalModules: ['@aws-sdk/*'],
+        format: OutputFormat.ESM,
+      },
+    });
+
+    this.uploadsTable.grantReadWriteData(finalizeUploadFunction);
+    this.issuesTable.grantReadData(finalizeUploadFunction);
+
+    // Step Functions state machine for batch processing
+    const processBatchTask = new tasks.LambdaInvoke(this, 'ProcessBatchTask', {
+      lambdaFunction: processBatchFunction,
+      outputPath: '$.Payload',
+    });
+
+    const finalizeTask = new tasks.LambdaInvoke(this, 'FinalizeTask', {
+      lambdaFunction: finalizeUploadFunction,
+      outputPath: '$.Payload',
+    });
+
+    const choice = new sfn.Choice(this, 'HasMoreBatches?')
+      .when(sfn.Condition.booleanEquals('$.hasMore', true), processBatchTask)
+      .otherwise(finalizeTask);
+
+    const definition = processBatchTask.next(choice);
+
+    const stateMachine = new sfn.StateMachine(this, 'CsvProcessingStateMachine', {
+      stateMachineName: `${stage}-jira-csv-processing`,
+      definitionBody: sfn.DefinitionBody.fromChainable(definition),
+      timeout: cdk.Duration.hours(24), // Allow up to 24 hours for very large files
+    });
+
+    // Lambda function to start Step Functions execution on S3 upload
+    const startProcessingFunction = new NodejsFunction(this, 'StartProcessingFunction', {
+      functionName: `${stage}-jira-start-processing`,
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'handler',
+      entry: path.join(__dirname, '../../functions/src/jira-start-processing/index.ts'),
+      timeout: cdk.Duration.seconds(30),
+      environment: {
+        STATE_MACHINE_ARN: stateMachine.stateMachineArn,
+        UPLOADS_TABLE: this.uploadsTable.tableName,
+      },
+      bundling: {
+        externalModules: ['@aws-sdk/*'],
+        format: OutputFormat.ESM,
+      },
+    });
+
+    stateMachine.grantStartExecution(startProcessingFunction);
+    this.uploadsTable.grantReadWriteData(startProcessingFunction);
+
+    // Add S3 event notification to trigger processing on CSV upload
     this.csvBucket.addEventNotification(
       s3.EventType.OBJECT_CREATED,
-      new s3n.LambdaDestination(csvProcessorFunction),
+      new s3n.LambdaDestination(startProcessingFunction),
       { suffix: '.csv' }
     );
 
@@ -213,6 +302,7 @@ export class JiraDashboardStack extends cdk.Stack {
       environment: {
         CSV_BUCKET: this.csvBucket.bucketName,
         UPLOADS_TABLE: this.uploadsTable.tableName,
+        STATE_MACHINE_ARN: stateMachine.stateMachineArn,
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],
@@ -222,6 +312,7 @@ export class JiraDashboardStack extends cdk.Stack {
 
     this.csvBucket.grantPut(getUploadUrlFunction);
     this.uploadsTable.grantWriteData(getUploadUrlFunction);
+    stateMachine.grantStartExecution(getUploadUrlFunction);
 
     // Lambda function for getting dashboard data
     const getDashboardDataFunction = new NodejsFunction(this, 'GetDashboardDataFunction', {
