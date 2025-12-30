@@ -13,6 +13,15 @@ export default defineConfig({
         main: resolve(__dirname, 'index.html'),
         'jira-dashboard': resolve(__dirname, 'jira-dashboard.html'),
       },
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'aws-vendor': ['aws-amplify'],
+          'chart-vendor': ['recharts'],
+          'http-vendor': ['axios'],
+        },
+      },
     },
+    chunkSizeWarningLimit: 600,
   },
 });

@@ -76,7 +76,9 @@ export class JiraDashboardStack extends cdk.Stack {
       readCapacity: isProdLike ? 5 : undefined,
       writeCapacity: isProdLike ? 5 : undefined,
       removalPolicy,
-      pointInTimeRecovery: isProdLike,
+      pointInTimeRecoverySpecification: {
+        pointInTimeRecoveryEnabled: isProdLike,
+      },
       stream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
       encryption: dynamodb.TableEncryption.AWS_MANAGED,
     });
@@ -114,7 +116,9 @@ export class JiraDashboardStack extends cdk.Stack {
       readCapacity: isProdLike ? 10 : undefined,
       writeCapacity: isProdLike ? 10 : undefined,
       removalPolicy,
-      pointInTimeRecovery: isProdLike,
+      pointInTimeRecoverySpecification: {
+        pointInTimeRecoveryEnabled: isProdLike,
+      },
       stream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
       encryption: dynamodb.TableEncryption.AWS_MANAGED,
     });
