@@ -16,13 +16,13 @@ export const HomePage: React.FC = () => {
 
   // Auto-refresh uploads list when there are processing uploads
   useEffect(() => {
-    // Only poll if we have uploads and at least one is processing/pending
+    // Only poll if we have uploads and at least one is actively processing
     if (uploads.length === 0) {
       return;
     }
 
     const hasProcessingUploads = uploads.some(
-      (upload) => upload.status === 'processing' || upload.status === 'pending'
+      (upload) => upload.status === 'processing'
     );
 
     if (!hasProcessingUploads) {
