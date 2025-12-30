@@ -26,41 +26,55 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       })
     );
 
-    const uploads = (result.Items || []).filter((upload) => upload.status === 'completed');
+    interface UploadItem {
+      status: string;
+      timestamp: string;
+      fileName: string;
+      totalIssues: number;
+      metrics?: {
+        bugs?: { total: number; open: number };
+        thisMonth?: { created: number; closed: number };
+        byStatus?: Record<string, number>;
+        byPriority?: Record<string, number>;
+        unassigned?: number;
+      };
+    }
+
+    const uploads = ((result.Items || []) as UploadItem[]).filter((upload) => upload.status === 'completed');
 
     // Calculate historical trends
     const trends = {
       totalIssuesOverTime: uploads.map((upload) => ({
-        date: upload.timestamp,
-        fileName: upload.fileName,
-        totalIssues: upload.totalIssues || 0,
+        date: String(upload.timestamp),
+        fileName: String(upload.fileName),
+        totalIssues: Number(upload.totalIssues) || 0,
       })),
       bugsOverTime: uploads.map((upload) => ({
-        date: upload.timestamp,
-        fileName: upload.fileName,
-        totalBugs: upload.metrics?.bugs?.total || 0,
-        openBugs: upload.metrics?.bugs?.open || 0,
+        date: String(upload.timestamp),
+        fileName: String(upload.fileName),
+        totalBugs: Number(upload.metrics?.bugs?.total) || 0,
+        openBugs: Number(upload.metrics?.bugs?.open) || 0,
       })),
       issuesCreatedPerMonth: uploads.map((upload) => ({
-        date: upload.timestamp,
-        fileName: upload.fileName,
-        created: upload.metrics?.thisMonth?.created || 0,
-        closed: upload.metrics?.thisMonth?.closed || 0,
+        date: String(upload.timestamp),
+        fileName: String(upload.fileName),
+        created: Number(upload.metrics?.thisMonth?.created) || 0,
+        closed: Number(upload.metrics?.thisMonth?.closed) || 0,
       })),
       statusTrends: uploads.map((upload) => ({
-        date: upload.timestamp,
-        fileName: upload.fileName,
-        ...upload.metrics?.byStatus,
+        date: String(upload.timestamp),
+        fileName: String(upload.fileName),
+        ...(upload.metrics?.byStatus || {}),
       })),
       priorityTrends: uploads.map((upload) => ({
-        date: upload.timestamp,
-        fileName: upload.fileName,
-        ...upload.metrics?.byPriority,
+        date: String(upload.timestamp),
+        fileName: String(upload.fileName),
+        ...(upload.metrics?.byPriority || {}),
       })),
       unassignedTrends: uploads.map((upload) => ({
-        date: upload.timestamp,
-        fileName: upload.fileName,
-        unassigned: upload.metrics?.unassigned || 0,
+        date: String(upload.timestamp),
+        fileName: String(upload.fileName),
+        unassigned: Number(upload.metrics?.unassigned) || 0,
       })),
     };
 
@@ -68,11 +82,11 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     const aggregateStats = {
       totalUploads: uploads.length,
       averageIssuesPerUpload:
-        uploads.reduce((sum, u) => sum + (u.totalIssues || 0), 0) / uploads.length || 0,
+        uploads.reduce((sum, u) => sum + (Number(u.totalIssues) || 0), 0) / uploads.length || 0,
       averageBugsPerUpload:
-        uploads.reduce((sum, u) => sum + (u.metrics?.bugs?.total || 0), 0) / uploads.length || 0,
-      latestUpload: uploads[uploads.length - 1],
-      oldestUpload: uploads[0],
+        uploads.reduce((sum, u) => sum + (Number(u.metrics?.bugs?.total) || 0), 0) / uploads.length || 0,
+      latestUpload: uploads[uploads.length - 1] || null,
+      oldestUpload: uploads[0] || null,
     };
 
     return {
@@ -85,7 +99,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         trends,
         aggregateStats,
         uploads: uploads.map((u) => ({
-          uploadId: u.uploadId,
+          uploadId: (u as { uploadId: string }).uploadId,
           timestamp: u.timestamp,
           fileName: u.fileName,
           totalIssues: u.totalIssues,

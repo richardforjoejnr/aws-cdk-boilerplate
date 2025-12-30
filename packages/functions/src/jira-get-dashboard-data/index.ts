@@ -46,7 +46,16 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       };
     }
 
-    const upload = uploadResult.Item;
+    const upload = uploadResult.Item as {
+      status: string;
+      metrics: {
+        byStatus: Record<string, number>;
+        byPriority: Record<string, number>;
+        byType: Record<string, number>;
+        byAssignee: Record<string, number>;
+      };
+      [key: string]: unknown;
+    };
 
     // If upload is not completed yet, return status
     if (upload.status !== 'completed') {
@@ -76,29 +85,42 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       })
     );
 
-    const issues = issuesResult.Items || [];
+    const issues = (issuesResult.Items || []) as Array<{
+      issueType: string;
+      status: string;
+      created: string;
+      assignee: string;
+      [key: string]: unknown;
+    }>;
+
+    const metrics = upload.metrics as {
+      byStatus: Record<string, number>;
+      byPriority: Record<string, number>;
+      byType: Record<string, number>;
+      byAssignee: Record<string, number>;
+    };
 
     // Calculate detailed metrics for the dashboard
     const dashboardData = {
       upload,
       summary: {
         totalIssues: issues.length,
-        ...upload.metrics,
+        ...(upload.metrics as Record<string, unknown>),
       },
       charts: {
-        statusDistribution: Object.entries(upload.metrics.byStatus).map(([name, value]) => ({
+        statusDistribution: Object.entries(metrics.byStatus).map(([name, value]) => ({
           name,
           value,
         })),
-        priorityDistribution: Object.entries(upload.metrics.byPriority).map(([name, value]) => ({
+        priorityDistribution: Object.entries(metrics.byPriority).map(([name, value]) => ({
           name,
           value,
         })),
-        typeDistribution: Object.entries(upload.metrics.byType).map(([name, value]) => ({
+        typeDistribution: Object.entries(metrics.byType).map(([name, value]) => ({
           name,
           value,
         })),
-        assigneeDistribution: Object.entries(upload.metrics.byAssignee)
+        assigneeDistribution: Object.entries(metrics.byAssignee)
           .map(([name, value]) => ({
             name,
             value,
@@ -109,11 +131,11 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       lists: {
         openBugs: issues.filter(
           (i) =>
-            i.issueType.toLowerCase().includes('bug') &&
-            !['done', 'closed', 'resolved'].some((s) => i.status.toLowerCase().includes(s))
+            String(i.issueType).toLowerCase().includes('bug') &&
+            !['done', 'closed', 'resolved'].some((s) => String(i.status).toLowerCase().includes(s))
         ),
         recentIssues: issues
-          .sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime())
+          .sort((a, b) => new Date(String(b.created)).getTime() - new Date(String(a.created)).getTime())
           .slice(0, 20),
         unassignedIssues: issues.filter((i) => !i.assignee || i.assignee === 'Unassigned'),
       },

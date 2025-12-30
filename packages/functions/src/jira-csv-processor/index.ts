@@ -1,12 +1,13 @@
 import { S3Event } from 'aws-lambda';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, PutCommand, BatchWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, BatchWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { parse } from 'csv-parse';
 import { Readable } from 'stream';
 
 const s3Client = new S3Client({});
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+const ddbClient = new DynamoDBClient({});
+const dynamoClient = DynamoDBDocumentClient.from(ddbClient);
 
 const UPLOADS_TABLE = process.env.UPLOADS_TABLE!;
 const ISSUES_TABLE = process.env.ISSUES_TABLE!;
@@ -24,7 +25,11 @@ interface JiraIssue {
   resolved?: string;
   projectKey: string;
   projectName: string;
-  [key: string]: any;
+  [key: string]: string | undefined;
+}
+
+interface CsvRecord {
+  [key: string]: string;
 }
 
 export const handler = async (event: S3Event): Promise<void> => {
@@ -71,7 +76,11 @@ export const handler = async (event: S3Event): Promise<void> => {
 
       // Parse CSV
       const issues: JiraIssue[] = [];
-      const stream = getObjectResponse.Body as Readable;
+      const bodyStream = getObjectResponse.Body;
+
+      if (!(bodyStream instanceof Readable)) {
+        throw new Error('S3 response body is not a readable stream');
+      }
 
       const parser = parse({
         columns: true,
@@ -83,9 +92,10 @@ export const handler = async (event: S3Event): Promise<void> => {
       let rowCount = 0;
       let errorCount = 0;
 
-      for await (const record of stream.pipe(parser)) {
+      for await (const row of bodyStream.pipe(parser)) {
         try {
           rowCount++;
+          const record = row as CsvRecord;
 
           // Map CSV columns to our schema
           const issue: JiraIssue = {

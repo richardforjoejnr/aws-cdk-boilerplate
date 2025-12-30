@@ -2,7 +2,7 @@ import axios from 'axios';
 import { Upload, DashboardData, HistoricalData } from '../types';
 
 // This will be set from environment variable or CloudFormation output
-const API_BASE_URL = import.meta.env.VITE_JIRA_API_URL || '';
+const API_BASE_URL = (import.meta.env.VITE_JIRA_API_URL as string | undefined) || '';
 
 const api = axios.create({
   baseURL: API_BASE_URL,

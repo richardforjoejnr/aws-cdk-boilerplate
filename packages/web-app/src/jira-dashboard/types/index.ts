@@ -45,7 +45,7 @@ export interface JiraIssue {
   resolved?: string;
   projectKey: string;
   projectName: string;
-  [key: string]: any;
+  [key: string]: string | undefined;
 }
 
 export interface DashboardData {
@@ -69,13 +69,19 @@ export interface ChartData {
   value: number;
 }
 
+export interface TrendData {
+  date: string;
+  fileName: string;
+  [key: string]: string | number;
+}
+
 export interface HistoricalData {
   trends: {
     totalIssuesOverTime: Array<{ date: string; fileName: string; totalIssues: number }>;
     bugsOverTime: Array<{ date: string; fileName: string; totalBugs: number; openBugs: number }>;
     issuesCreatedPerMonth: Array<{ date: string; fileName: string; created: number; closed: number }>;
-    statusTrends: Array<{ date: string; fileName: string; [key: string]: any }>;
-    priorityTrends: Array<{ date: string; fileName: string; [key: string]: any }>;
+    statusTrends: TrendData[];
+    priorityTrends: TrendData[];
     unassignedTrends: Array<{ date: string; fileName: string; unassigned: number }>;
   };
   aggregateStats: {

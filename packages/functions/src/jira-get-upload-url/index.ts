@@ -31,7 +31,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       };
     }
 
-    const body: UploadRequest = JSON.parse(event.body);
+    const body = JSON.parse(event.body) as UploadRequest;
 
     if (!body.fileName) {
       return {
