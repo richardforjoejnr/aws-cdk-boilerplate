@@ -5,7 +5,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run postbuild",
+    "postbuild": "for dir in dist/jira-*/; do echo '{\"type\":\"module\"}' > \"${dir}package.json\"; done",
     "watch": "tsc -w",
     "test": "jest",
     "lint": "eslint src --ext .ts"
