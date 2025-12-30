@@ -162,7 +162,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete }) => {
       </div>
 
       <button
-        onClick={handleUpload}
+        onClick={() => void handleUpload()}
         disabled={!file || uploading}
         style={{
           ...styles.button,

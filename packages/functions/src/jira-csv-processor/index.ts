@@ -108,6 +108,9 @@ export const handler = async (event: S3Event): Promise<void> => {
         skip_empty_lines: true,
         trim: true,
         relax_column_count: true, // Handle inconsistent column counts
+        relax_quotes: true, // Handle multiline quoted fields
+        escape: '"',
+        quote: '"',
       });
 
       let rowCount = 0;
@@ -155,6 +158,7 @@ export const handler = async (event: S3Event): Promise<void> => {
         } catch (error) {
           errorCount++;
           console.error(`Error parsing row ${rowCount}:`, error);
+          console.error(`Row data sample:`, JSON.stringify(row).substring(0, 500));
         }
       }
 
@@ -237,23 +241,30 @@ export const handler = async (event: S3Event): Promise<void> => {
             uploadId,
             timestamp,
           },
-          UpdateExpression: 'SET #status = :status, updatedAt = :updatedAt, totalIssues = :totalIssues, metrics = :metrics, fileName = :fileName',
+          UpdateExpression: 'SET #status = :status, updatedAt = :updatedAt, totalIssues = :totalIssues, #metrics = :metrics, fileName = :fileName',
           ExpressionAttributeNames: {
             '#status': 'status',
+            '#metrics': 'metrics',
           },
           ExpressionAttributeValues: {
             ':status': 'completed',
             ':updatedAt': new Date().toISOString(),
             ':totalIssues': issues.length,
             ':metrics': metrics,
-            ':fileName': key.split('/').pop(),
+            ':fileName': key.split('/').pop() || key,
           },
         })
       );
 
       console.log(`Successfully processed ${processedCount} issues for upload ${uploadId}`);
     } catch (error) {
-      console.error(`Error processing ${key}:`, error);
+      console.error(`❌ PROCESSING ERROR for ${key}:`);
+      console.error(`Error type: ${error instanceof Error ? error.constructor.name : typeof error}`);
+      console.error(`Error message: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
+
+      // Log additional context
+      console.error(`Upload context: uploadId=${uploadId}, timestamp=${timestamp || 'undefined'}`);
 
       // Update upload status to failed (only if we have timestamp)
       if (timestamp) {

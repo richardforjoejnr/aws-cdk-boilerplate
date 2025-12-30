@@ -10,7 +10,7 @@ export const HistoricalDashboard: React.FC = () => {
   const [error, setError] = useState<string>('');
 
   useEffect(() => {
-    loadHistoricalData();
+    void loadHistoricalData();
   }, []);
 
   const loadHistoricalData = async () => {

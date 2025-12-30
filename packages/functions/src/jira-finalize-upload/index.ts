@@ -59,6 +59,20 @@ export const handler = async (event: FinalizeInput): Promise<{ status: string }>
     // Calculate metrics
     const metrics = calculateMetrics(issues);
 
+    // Determine Jira base URL from first issue's project URL or construct from project key
+    let jiraBaseUrl = '';
+    if (issues.length > 0) {
+      const firstIssue = issues[0];
+      // Try to get from Project url column
+      if (firstIssue['Project url']) {
+        jiraBaseUrl = firstIssue['Project url'];
+      } else if (firstIssue.issueKey) {
+        // Extract domain from issue key pattern (e.g., "DEV-3774" -> assume vocovo.atlassian.net)
+        // For now, we'll use a default pattern - in production, this should be configurable
+        jiraBaseUrl = 'https://vocovo.atlassian.net';
+      }
+    }
+
     // Update upload status to completed with metrics
     await dynamoClient.send(
       new UpdateCommand({
@@ -67,9 +81,10 @@ export const handler = async (event: FinalizeInput): Promise<{ status: string }>
           uploadId,
           timestamp,
         },
-        UpdateExpression: 'SET #status = :status, updatedAt = :updatedAt, totalIssues = :totalIssues, metrics = :metrics, fileName = :fileName, processedIssues = :processedIssues',
+        UpdateExpression: 'SET #status = :status, updatedAt = :updatedAt, totalIssues = :totalIssues, #metrics = :metrics, fileName = :fileName, processedIssues = :processedIssues, jiraBaseUrl = :jiraBaseUrl',
         ExpressionAttributeNames: {
           '#status': 'status',
+          '#metrics': 'metrics',
         },
         ExpressionAttributeValues: {
           ':status': 'completed',
@@ -78,6 +93,7 @@ export const handler = async (event: FinalizeInput): Promise<{ status: string }>
           ':metrics': metrics,
           ':fileName': fileName,
           ':processedIssues': issues.length,
+          ':jiraBaseUrl': jiraBaseUrl,
         },
       })
     );
@@ -86,7 +102,11 @@ export const handler = async (event: FinalizeInput): Promise<{ status: string }>
 
     return { status: 'completed' };
   } catch (error) {
-    console.error('Error finalizing upload:', error);
+    console.error(`❌ FINALIZE ERROR:`);
+    console.error(`Error type: ${error instanceof Error ? error.constructor.name : typeof error}`);
+    console.error(`Error message: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
+    console.error(`Finalize context: uploadId=${uploadId}, fileName=${fileName}`);
 
     // Update upload status to failed
     try {

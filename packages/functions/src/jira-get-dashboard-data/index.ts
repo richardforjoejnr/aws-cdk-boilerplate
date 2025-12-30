@@ -1,6 +1,6 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, QueryCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -24,18 +24,20 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       };
     }
 
-    // Get upload metadata
+    // Get upload metadata (query by uploadId to get the latest record)
     const uploadResult = await dynamoClient.send(
-      new GetCommand({
+      new QueryCommand({
         TableName: UPLOADS_TABLE,
-        Key: {
-          uploadId,
-          timestamp: uploadId,
+        KeyConditionExpression: 'uploadId = :uploadId',
+        ExpressionAttributeValues: {
+          ':uploadId': uploadId,
         },
+        Limit: 1,
+        ScanIndexForward: false, // Get the most recent timestamp first
       })
     );
 
-    if (!uploadResult.Item) {
+    if (!uploadResult.Items || uploadResult.Items.length === 0) {
       return {
         statusCode: 404,
         headers: {
@@ -46,7 +48,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       };
     }
 
-    const upload = uploadResult.Item as {
+    const upload = uploadResult.Items[0] as {
       status: string;
       metrics: {
         byStatus: Record<string, number>;

@@ -10,6 +10,7 @@ export interface Upload {
   updatedAt?: string;
   errorMessage?: string;
   metrics?: Metrics;
+  jiraBaseUrl?: string;
 }
 
 export interface Metrics {

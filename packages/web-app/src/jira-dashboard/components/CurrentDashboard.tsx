@@ -16,11 +16,11 @@ export const CurrentDashboard: React.FC<CurrentDashboardProps> = ({ uploadId }) 
   const [error, setError] = useState<string>('');
 
   useEffect(() => {
-    loadDashboard();
+    void loadDashboard();
     // Poll every 5 seconds if processing
     const interval = setInterval(() => {
       if (data?.upload.status === 'processing') {
-        loadDashboard();
+        void loadDashboard();
       }
     }, 5000);
     return () => clearInterval(interval);
@@ -61,6 +61,22 @@ export const CurrentDashboard: React.FC<CurrentDashboardProps> = ({ uploadId }) 
   }
 
   const { summary, charts, lists, upload } = data;
+
+  // Helper function to render issue key as link
+  const renderIssueKey = (issueKey: string) => {
+    const jiraBaseUrl = upload.jiraBaseUrl || 'https://vocovo.atlassian.net';
+    const url = `${jiraBaseUrl}/browse/${issueKey}`;
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={styles.issueKeyLink}
+      >
+        {issueKey}
+      </a>
+    );
+  };
 
   return (
     <div style={styles.container}>
@@ -211,7 +227,7 @@ export const CurrentDashboard: React.FC<CurrentDashboardProps> = ({ uploadId }) 
           <div style={styles.list}>
             {lists.openBugs.slice(0, 10).map((issue) => (
               <div key={issue.issueKey} style={styles.listItem}>
-                <span style={styles.issueKey}>{issue.issueKey}</span>
+                {renderIssueKey(issue.issueKey)}
                 <span style={styles.issueSummary}>{issue.summary}</span>
                 <span style={styles.issuePriority}>{issue.priority}</span>
               </div>
@@ -226,12 +242,27 @@ export const CurrentDashboard: React.FC<CurrentDashboardProps> = ({ uploadId }) 
           <div style={styles.list}>
             {lists.unassignedIssues.slice(0, 10).map((issue) => (
               <div key={issue.issueKey} style={styles.listItem}>
-                <span style={styles.issueKey}>{issue.issueKey}</span>
+                {renderIssueKey(issue.issueKey)}
                 <span style={styles.issueSummary}>{issue.summary}</span>
                 <span style={styles.issueType}>{issue.issueType}</span>
               </div>
             ))}
             {lists.unassignedIssues.length === 0 && <p style={styles.emptyList}>All issues assigned</p>}
+          </div>
+        </div>
+
+        {/* Recent Issues */}
+        <div style={styles.card}>
+          <h3 style={styles.cardTitle}>Recent Issues ({lists.recentIssues.length})</h3>
+          <div style={styles.list}>
+            {lists.recentIssues.slice(0, 20).map((issue) => (
+              <div key={issue.issueKey} style={styles.listItem}>
+                {renderIssueKey(issue.issueKey)}
+                <span style={styles.issueSummary}>{issue.summary}</span>
+                <span style={styles.issueType}>{issue.issueType}</span>
+              </div>
+            ))}
+            {lists.recentIssues.length === 0 && <p style={styles.emptyList}>No recent issues</p>}
           </div>
         </div>
       </div>
@@ -346,6 +377,13 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: '600',
     color: '#0066cc',
     minWidth: '100px',
+  },
+  issueKeyLink: {
+    fontWeight: '600',
+    color: '#0066cc',
+    minWidth: '100px',
+    textDecoration: 'none',
+    display: 'inline-block',
   },
   issueSummary: {
     flex: 1,

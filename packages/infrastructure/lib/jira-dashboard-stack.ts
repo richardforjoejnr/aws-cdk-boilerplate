@@ -249,6 +249,11 @@ export class JiraDashboardStack extends cdk.Stack {
 
     const finalizeTask = new tasks.LambdaInvoke(this, 'FinalizeTask', {
       lambdaFunction: finalizeUploadFunction,
+      payload: sfn.TaskInput.fromObject({
+        uploadId: sfn.JsonPath.stringAt('$.uploadId'),
+        timestamp: sfn.JsonPath.stringAt('$.timestamp'),
+        fileName: sfn.JsonPath.stringAt('$.fileName'),
+      }),
       outputPath: '$.Payload',
     });
 

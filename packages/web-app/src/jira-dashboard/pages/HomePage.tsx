@@ -11,7 +11,7 @@ export const HomePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadUploads();
+    void loadUploads();
   }, []);
 
   // Auto-refresh uploads list when there are processing uploads
@@ -31,7 +31,7 @@ export const HomePage: React.FC = () => {
 
     // Poll every 2 seconds
     const interval = setInterval(() => {
-      loadUploads();
+      void loadUploads();
     }, 2000);
 
     return () => clearInterval(interval);
@@ -49,7 +49,7 @@ export const HomePage: React.FC = () => {
   };
 
   const handleUploadComplete = (uploadId: string) => {
-    loadUploads();
+    void loadUploads();
     // Navigate to the dashboard after a short delay
     setTimeout(() => {
       navigate(`/dashboard/${uploadId}`);
@@ -72,7 +72,7 @@ export const HomePage: React.FC = () => {
     try {
       await jiraApi.deleteUpload(uploadId);
       // Reload the uploads list
-      loadUploads();
+      void loadUploads();
     } catch (error) {
       console.error('Error deleting upload:', error);
       alert('Failed to delete upload. Please try again.');
@@ -139,7 +139,7 @@ export const HomePage: React.FC = () => {
                         </button>
                       )}
                       <button
-                        onClick={() => handleDeleteUpload(upload.uploadId, upload.fileName)}
+                        onClick={() => void handleDeleteUpload(upload.uploadId, upload.fileName)}
                         style={styles.deleteButton}
                         title={`Delete ${upload.fileName}`}
                       >

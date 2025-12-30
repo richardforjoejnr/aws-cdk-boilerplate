@@ -36,6 +36,7 @@ interface ProcessBatchInput {
   timestamp: string;
   bucket: string;
   key: string;
+  fileName: string;
   startRow: number;
   batchSize: number;
   totalRows?: number;
@@ -46,6 +47,7 @@ interface ProcessBatchOutput {
   timestamp: string;
   bucket: string;
   key: string;
+  fileName: string;
   startRow: number;
   batchSize: number;
   totalRows: number;
@@ -57,7 +59,7 @@ interface ProcessBatchOutput {
 export const handler = async (event: ProcessBatchInput): Promise<ProcessBatchOutput> => {
   console.log('Processing batch:', JSON.stringify(event, null, 2));
 
-  const { uploadId, timestamp, bucket, key, startRow, batchSize } = event;
+  const { uploadId, timestamp, bucket, key, fileName, startRow, batchSize } = event;
 
   try {
     // Get CSV from S3
@@ -84,7 +86,10 @@ export const handler = async (event: ProcessBatchInput): Promise<ProcessBatchOut
       columns: true,
       skip_empty_lines: true,
       trim: true,
-      relax_column_count: true,
+      relax_column_count: true, // Handle inconsistent column counts
+      relax_quotes: true, // Handle multiline quoted fields
+      escape: '"',
+      quote: '"',
     });
 
     let rowCount = 0;
@@ -205,6 +210,7 @@ export const handler = async (event: ProcessBatchInput): Promise<ProcessBatchOut
       timestamp,
       bucket,
       key,
+      fileName,
       startRow,
       batchSize,
       totalRows,
@@ -213,7 +219,11 @@ export const handler = async (event: ProcessBatchInput): Promise<ProcessBatchOut
       nextStartRow,
     };
   } catch (error) {
-    console.error('Error processing batch:', error);
+    console.error(`❌ BATCH PROCESSING ERROR:`);
+    console.error(`Error type: ${error instanceof Error ? error.constructor.name : typeof error}`);
+    console.error(`Error message: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
+    console.error(`Batch context: uploadId=${uploadId}, startRow=${startRow}, batchSize=${batchSize}`);
     throw error;
   }
 };
