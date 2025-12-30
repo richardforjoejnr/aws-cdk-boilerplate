@@ -51,13 +51,15 @@ export const handler = async (event: S3Event): Promise<void> => {
             uploadId,
             timestamp: uploadId, // Using uploadId as timestamp for simplicity
           },
-          UpdateExpression: 'SET #status = :status, updatedAt = :updatedAt',
+          UpdateExpression: 'SET #status = :status, updatedAt = :updatedAt, processedIssues = :processedIssues, totalIssues = :totalIssues',
           ExpressionAttributeNames: {
             '#status': 'status',
           },
           ExpressionAttributeValues: {
             ':status': 'processing',
             ':updatedAt': new Date().toISOString(),
+            ':processedIssues': 0,
+            ':totalIssues': 0,
           },
         })
       );
@@ -139,6 +141,22 @@ export const handler = async (event: S3Event): Promise<void> => {
 
       console.log(`Parsed ${issues.length} issues from CSV (${errorCount} errors)`);
 
+      // Update total issues count
+      await dynamoClient.send(
+        new UpdateCommand({
+          TableName: UPLOADS_TABLE,
+          Key: {
+            uploadId,
+            timestamp: uploadId,
+          },
+          UpdateExpression: 'SET totalIssues = :totalIssues, updatedAt = :updatedAt',
+          ExpressionAttributeValues: {
+            ':totalIssues': issues.length,
+            ':updatedAt': new Date().toISOString(),
+          },
+        })
+      );
+
       // Batch write issues to DynamoDB (max 25 items per batch)
       const batchSize = 25;
       let processedCount = 0;
@@ -167,6 +185,22 @@ export const handler = async (event: S3Event): Promise<void> => {
           );
           processedCount += batch.length;
           console.log(`Batch ${i / batchSize + 1}: Wrote ${batch.length} items (total: ${processedCount}/${issues.length})`);
+
+          // Update progress after each batch
+          await dynamoClient.send(
+            new UpdateCommand({
+              TableName: UPLOADS_TABLE,
+              Key: {
+                uploadId,
+                timestamp: uploadId,
+              },
+              UpdateExpression: 'SET processedIssues = :processedIssues, updatedAt = :updatedAt',
+              ExpressionAttributeValues: {
+                ':processedIssues': processedCount,
+                ':updatedAt': new Date().toISOString(),
+              },
+            })
+          );
         } catch (error) {
           console.error(`Error writing batch ${i / batchSize + 1}:`, error);
           throw error;

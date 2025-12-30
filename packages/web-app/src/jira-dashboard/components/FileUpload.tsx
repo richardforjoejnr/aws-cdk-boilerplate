@@ -85,12 +85,11 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete }) => {
 
       // Step 2: Upload file to S3
       setProgress('Uploading file to S3...');
-      setProgressPercent(10);
       await jiraApi.uploadCsvFile(presignedUrl, file);
 
       // Step 3: Start polling for status
-      setProgress('Upload complete! Processing CSV...');
-      setProgressPercent(20);
+      setProgress('Processing CSV...');
+      setProgressPercent(0);
 
       // Poll every 2 seconds
       const interval = setInterval(() => {
