@@ -94,6 +94,7 @@ export class PipelineStack extends cdk.Stack {
         'iam:*',
         's3:*',
         'ecr:*',
+        'ce:*', // Cost Explorer permissions for cost tracking Lambda
       ],
       resources: ['*'],
     });

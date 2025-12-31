@@ -4,6 +4,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction, OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
 import * as sfn from 'aws-cdk-lib/aws-stepfunctions';
 import * as tasks from 'aws-cdk-lib/aws-stepfunctions-tasks';
@@ -483,6 +484,32 @@ export class JiraDashboardStack extends cdk.Stack {
     historicalResource.addMethod(
       'GET',
       new apigateway.LambdaIntegration(getHistoricalDataFunction)
+    );
+
+    // Lambda function for getting AWS costs
+    const getCostsFunction = new NodejsFunction(this, 'GetCostsFunction', {
+      functionName: `${stage}-get-costs`,
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'handler',
+      entry: path.join(__dirname, '../../functions/src/get-costs/index.ts'),
+      timeout: cdk.Duration.seconds(30),
+      bundling: {
+        externalModules: ['@aws-sdk/*'],
+        format: OutputFormat.ESM,
+      },
+      initialPolicy: [
+        new iam.PolicyStatement({
+          actions: ['ce:GetCostAndUsage'],
+          resources: ['*'],
+        }),
+      ],
+    });
+
+    // GET /costs - Get AWS cost data
+    const costsResource = this.api.root.addResource('costs');
+    costsResource.addMethod(
+      'GET',
+      new apigateway.LambdaIntegration(getCostsFunction)
     );
 
     // Outputs
