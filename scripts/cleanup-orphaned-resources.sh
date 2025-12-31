@@ -279,7 +279,7 @@ cleanup_all_log_groups() {
     return 0
 }
 
-# Function to delete CloudFront distribution
+# Function to disable CloudFront distributions
 check_and_delete_cloudfront_distribution() {
     local stage=$1
 
@@ -287,7 +287,6 @@ check_and_delete_cloudfront_distribution() {
 
     # Get distributions with tag Environment=${stage}
     local distribution_ids=$(aws cloudfront list-distributions \
-        --region "$REGION" \
         --query "DistributionList.Items[?contains(Comment, '${stage}')].Id" \
         --output text 2>/dev/null || echo "")
 
@@ -295,28 +294,39 @@ check_and_delete_cloudfront_distribution() {
         for dist_id in $distribution_ids; do
             echo -e "${YELLOW}  → Found distribution: ${dist_id}${NC}"
 
-            # Get current config
-            local etag=$(aws cloudfront get-distribution-config --id "$dist_id" --query 'ETag' --output text 2>/dev/null || echo "")
+            # Get current distribution status
+            local enabled=$(aws cloudfront get-distribution --id "$dist_id" --query 'Distribution.DistributionConfig.Enabled' --output text 2>/dev/null || echo "")
 
-            if [ -n "$etag" ]; then
-                # Disable distribution first
+            if [ "$enabled" = "True" ] || [ "$enabled" = "true" ]; then
+                # Distribution is enabled, disable it
                 echo -e "${YELLOW}  → Disabling distribution...${NC}"
-                aws cloudfront get-distribution-config --id "$dist_id" 2>/dev/null | \
-                    jq '.DistributionConfig | .Enabled = false' > /tmp/cf-config-${dist_id}.json || true
 
-                aws cloudfront update-distribution \
-                    --id "$dist_id" \
-                    --distribution-config file:///tmp/cf-config-${dist_id}.json \
-                    --if-match "$etag" \
-                    --region "$REGION" >/dev/null 2>&1 || true
+                local etag=$(aws cloudfront get-distribution-config --id "$dist_id" --query 'ETag' --output text 2>/dev/null || echo "")
 
-                rm -f /tmp/cf-config-${dist_id}.json || true
+                if [ -n "$etag" ]; then
+                    # Get config and disable
+                    aws cloudfront get-distribution-config --id "$dist_id" 2>/dev/null | \
+                        jq '.DistributionConfig | .Enabled = false' > /tmp/cf-config-${dist_id}.json || true
 
-                echo -e "${YELLOW}  ⏳ Distribution is being disabled (this takes 15-60 minutes)${NC}"
-                echo -e "${YELLOW}  → You may need to manually delete it later: aws cloudfront delete-distribution --id ${dist_id}${NC}"
+                    if aws cloudfront update-distribution \
+                        --id "$dist_id" \
+                        --distribution-config file:///tmp/cf-config-${dist_id}.json \
+                        --if-match "$etag" >/dev/null 2>&1; then
+                        echo -e "${GREEN}  ✓ Distribution disabled${NC}"
+                    else
+                        echo -e "${YELLOW}  ⚠️  Could not disable distribution${NC}"
+                    fi
+
+                    rm -f /tmp/cf-config-${dist_id}.json || true
+                fi
+            else
+                echo -e "${GREEN}  ✓ Distribution already disabled${NC}"
             fi
+
+            # Provide manual deletion command
+            echo -e "${BLUE}  ℹ To delete manually (after ~15 mins): ${NC}"
+            echo -e "${BLUE}    aws cloudfront delete-distribution --id ${dist_id}${NC}"
         done
-        echo -e "${YELLOW}  ⚠️  CloudFront distributions cannot be immediately deleted${NC}"
     else
         echo -e "${GREEN}  ✓ No CloudFront distributions found${NC}"
     fi
