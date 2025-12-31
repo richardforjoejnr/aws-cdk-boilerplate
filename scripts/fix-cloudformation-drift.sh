@@ -122,43 +122,56 @@ if [ "$DRIFT_DETECTED" = true ]; then
                 aws cloudformation delete-stack --stack-name "$stack" --region "$REGION"
                 echo -e "${GREEN}  ✓ Stack deletion initiated${NC}"
 
-                # Wait for deletion to complete
-                echo -e "${YELLOW}  ⏳ Waiting for stack deletion to complete...${NC}"
+                # Wait for deletion to complete with timeout
+                echo -e "${YELLOW}  ⏳ Waiting for stack deletion to complete (max 10 minutes)...${NC}"
 
-                # Retry logic for stack deletion
-                MAX_RETRIES=3
-                RETRY_COUNT=0
-                while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-                    if aws cloudformation wait stack-delete-complete --stack-name "$stack" --region "$REGION" 2>/dev/null; then
+                # Custom wait loop with timeout instead of aws wait command
+                MAX_WAIT_TIME=600  # 10 minutes
+                WAIT_INTERVAL=10   # Check every 10 seconds
+                ELAPSED=0
+
+                while [ $ELAPSED -lt $MAX_WAIT_TIME ]; do
+                    # Check current status
+                    CURRENT_STATUS=$(aws cloudformation describe-stacks \
+                        --stack-name "$stack" \
+                        --region "$REGION" \
+                        --query 'Stacks[0].StackStatus' \
+                        --output text 2>/dev/null || echo "DELETED")
+
+                    if [ "$CURRENT_STATUS" = "DELETED" ]; then
                         echo -e "${GREEN}  ✓ Stack deleted successfully${NC}"
                         break
-                    else
-                        # Check current status
-                        CURRENT_STATUS=$(aws cloudformation describe-stacks \
-                            --stack-name "$stack" \
-                            --region "$REGION" \
-                            --query 'Stacks[0].StackStatus' \
-                            --output text 2>/dev/null || echo "DELETED")
-
-                        if [ "$CURRENT_STATUS" = "DELETED" ]; then
-                            echo -e "${GREEN}  ✓ Stack deleted successfully${NC}"
-                            break
-                        elif [ "$CURRENT_STATUS" = "DELETE_FAILED" ] || [ "$CURRENT_STATUS" = "UPDATE_ROLLBACK_COMPLETE" ]; then
-                            RETRY_COUNT=$((RETRY_COUNT + 1))
-                            if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                                echo -e "${YELLOW}  ⚠️  Stack in $CURRENT_STATUS state, retrying deletion (attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)...${NC}"
-                                aws cloudformation delete-stack --stack-name "$stack" --region "$REGION"
-                                sleep 5
-                            else
-                                echo -e "${RED}  ✗ Failed to delete stack after $MAX_RETRIES attempts. Manual intervention required.${NC}"
-                                exit 1
-                            fi
-                        else
-                            echo -e "${YELLOW}  ⏳ Stack status: $CURRENT_STATUS, waiting...${NC}"
-                            sleep 10
+                    elif [ "$CURRENT_STATUS" = "DELETE_FAILED" ]; then
+                        echo -e "${RED}  ✗ Stack deletion failed${NC}"
+                        echo -e "${YELLOW}  → Retrying deletion...${NC}"
+                        aws cloudformation delete-stack --stack-name "$stack" --region "$REGION" 2>/dev/null || true
+                        ELAPSED=0  # Reset timer for retry
+                    elif [ "$CURRENT_STATUS" = "DELETE_IN_PROGRESS" ]; then
+                        # Still deleting, show progress
+                        if [ $((ELAPSED % 60)) -eq 0 ] && [ $ELAPSED -gt 0 ]; then
+                            echo -e "${BLUE}  ⏳ Still deleting... ($((ELAPSED / 60)) minute(s) elapsed)${NC}"
                         fi
+                    else
+                        echo -e "${YELLOW}  ⏳ Stack status: $CURRENT_STATUS${NC}"
                     fi
+
+                    sleep $WAIT_INTERVAL
+                    ELAPSED=$((ELAPSED + WAIT_INTERVAL))
                 done
+
+                # Check if we timed out
+                if [ $ELAPSED -ge $MAX_WAIT_TIME ]; then
+                    FINAL_STATUS=$(aws cloudformation describe-stacks \
+                        --stack-name "$stack" \
+                        --region "$REGION" \
+                        --query 'Stacks[0].StackStatus' \
+                        --output text 2>/dev/null || echo "DELETED")
+
+                    if [ "$FINAL_STATUS" != "DELETED" ]; then
+                        echo -e "${YELLOW}  ⚠️  Timeout waiting for stack deletion (status: $FINAL_STATUS)${NC}"
+                        echo -e "${YELLOW}  → Continuing anyway, CDK will handle it...${NC}"
+                    fi
+                fi
             else
                 echo -e "${YELLOW}  ⊘ Stack already being deleted or doesn't exist${NC}"
             fi
