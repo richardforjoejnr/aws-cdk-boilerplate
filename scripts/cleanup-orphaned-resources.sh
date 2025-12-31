@@ -255,11 +255,11 @@ cleanup_all_log_groups() {
 
                 if aws logs delete-log-group --log-group-name "$log_group" --region "$REGION" 2>/dev/null; then
                     echo -e "${GREEN}    ✓ Deleted${NC}"
-                    ((total_deleted++))
+                    ((total_deleted++)) || true
                 else
                     # Log group might be managed by CloudFormation or protected
                     echo -e "${BLUE}    → Skipped (may be managed by CloudFormation)${NC}"
-                    ((total_skipped++))
+                    ((total_skipped++)) || true
                 fi
             done
         fi
@@ -274,6 +274,9 @@ cleanup_all_log_groups() {
     if [ $total_deleted -eq 0 ] && [ $total_skipped -eq 0 ]; then
         echo -e "${GREEN}  ✓ No log groups found to delete${NC}"
     fi
+
+    # Always return success
+    return 0
 }
 
 # Function to delete CloudFront distribution
@@ -293,13 +296,13 @@ check_and_delete_cloudfront_distribution() {
             echo -e "${YELLOW}  → Found distribution: ${dist_id}${NC}"
 
             # Get current config
-            local etag=$(aws cloudfront get-distribution-config --id "$dist_id" --query 'ETag' --output text 2>/dev/null)
+            local etag=$(aws cloudfront get-distribution-config --id "$dist_id" --query 'ETag' --output text 2>/dev/null || echo "")
 
             if [ -n "$etag" ]; then
                 # Disable distribution first
                 echo -e "${YELLOW}  → Disabling distribution...${NC}"
                 aws cloudfront get-distribution-config --id "$dist_id" 2>/dev/null | \
-                    jq '.DistributionConfig | .Enabled = false' > /tmp/cf-config-${dist_id}.json
+                    jq '.DistributionConfig | .Enabled = false' > /tmp/cf-config-${dist_id}.json || true
 
                 aws cloudfront update-distribution \
                     --id "$dist_id" \
@@ -307,7 +310,7 @@ check_and_delete_cloudfront_distribution() {
                     --if-match "$etag" \
                     --region "$REGION" >/dev/null 2>&1 || true
 
-                rm -f /tmp/cf-config-${dist_id}.json
+                rm -f /tmp/cf-config-${dist_id}.json || true
 
                 echo -e "${YELLOW}  ⏳ Distribution is being disabled (this takes 15-60 minutes)${NC}"
                 echo -e "${YELLOW}  → You may need to manually delete it later: aws cloudfront delete-distribution --id ${dist_id}${NC}"
@@ -317,6 +320,9 @@ check_and_delete_cloudfront_distribution() {
     else
         echo -e "${GREEN}  ✓ No CloudFront distributions found${NC}"
     fi
+
+    # Always return success
+    return 0
 }
 
 # Main cleanup logic
