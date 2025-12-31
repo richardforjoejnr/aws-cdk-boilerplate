@@ -3,6 +3,7 @@ import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { DynamoDBDocumentClient, BatchWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { Readable } from 'stream';
 import { handler } from '../jira-process-batch/index.js';
+import { sdkStreamMixin } from '@smithy/util-stream';
 
 // Mock AWS SDK clients
 const s3Mock = mockClient(S3Client);
@@ -31,7 +32,7 @@ Task 5,PROJ-5,5,Bug,Done,Medium,Charlie Brown,2024-01-01,2024-01-02,2024-01-03,P
       const stream = Readable.from([csvContent]);
 
       s3Mock.on(GetObjectCommand).resolves({
-        Body: stream as any,
+        Body: sdkStreamMixin(stream),
       });
 
       dynamoMock.on(BatchWriteCommand).resolves({});
@@ -79,7 +80,7 @@ Task 5,PROJ-5,5,Bug,Done,Medium,Charlie Brown,2024-01-01,2024-01-02,2024-01-03,P
       const stream = Readable.from([csvContent]);
 
       s3Mock.on(GetObjectCommand).resolves({
-        Body: stream as any,
+        Body: sdkStreamMixin(stream),
       });
 
       dynamoMock.on(BatchWriteCommand).resolves({});
@@ -114,7 +115,7 @@ Task 5,PROJ-5,5,Bug,Done,Medium,Charlie Brown,2024-01-01,2024-01-02,2024-01-03,P
       const stream = Readable.from([csvContent]);
 
       s3Mock.on(GetObjectCommand).resolves({
-        Body: stream as any,
+        Body: sdkStreamMixin(stream),
       });
 
       dynamoMock.on(BatchWriteCommand).resolves({});
@@ -146,7 +147,7 @@ Task 1,PROJ-1,1,Story,Done,High,,2024-01-01,2024-01-02,2024-01-03,PROJ,Project N
       const stream = Readable.from([csvContent]);
 
       s3Mock.on(GetObjectCommand).resolves({
-        Body: stream as any,
+        Body: sdkStreamMixin(stream),
       });
 
       dynamoMock.on(BatchWriteCommand).resolves({});
@@ -183,7 +184,7 @@ Task 1,PROJ-1,1,Story,Done,High,,2024-01-01,2024-01-02,2024-01-03,PROJ,Project N
       const stream = Readable.from([csvContent]);
 
       s3Mock.on(GetObjectCommand).resolves({
-        Body: stream as any,
+        Body: sdkStreamMixin(stream),
       });
 
       dynamoMock.on(BatchWriteCommand).resolves({});
@@ -224,7 +225,7 @@ Task 1,PROJ-1,1,Story,Done,High,User,2024-01-01,2024-01-02,2024-01-03,PROJ,Proje
       const destroySpy = jest.spyOn(stream, 'destroy');
 
       s3Mock.on(GetObjectCommand).resolves({
-        Body: stream as any,
+        Body: sdkStreamMixin(stream),
       });
 
       dynamoMock.on(BatchWriteCommand).resolves({});
@@ -258,7 +259,7 @@ Task 1,PROJ-1,1,Story,Done,High,User,2024-01-01,2024-01-02,2024-01-03,PROJ,Proje
       const destroySpy = jest.spyOn(stream, 'destroy');
 
       s3Mock.on(GetObjectCommand).resolves({
-        Body: stream as any,
+        Body: sdkStreamMixin(stream),
       });
 
       dynamoMock.on(BatchWriteCommand).resolves({});
@@ -295,7 +296,7 @@ Task 1,PROJ-1,1,Story,Done,High,User,2024-01-01,2024-01-02,2024-01-03,PROJ,Proje
       const stream = Readable.from([csvContent]);
 
       s3Mock.on(GetObjectCommand).resolves({
-        Body: stream as any,
+        Body: sdkStreamMixin(stream),
       });
 
       dynamoMock.on(BatchWriteCommand).resolves({});
@@ -355,7 +356,7 @@ Task 2,PROJ-2,2,Extra,Columns,Here`;
       const stream = Readable.from([csvContent]);
 
       s3Mock.on(GetObjectCommand).resolves({
-        Body: stream as any,
+        Body: sdkStreamMixin(stream),
       });
 
       dynamoMock.on(BatchWriteCommand).resolves({});
@@ -388,7 +389,7 @@ Task 2,PROJ-2,2,Extra,Columns,Here`;
       const stream = Readable.from([csvContent]);
 
       s3Mock.on(GetObjectCommand).resolves({
-        Body: stream as any,
+        Body: sdkStreamMixin(stream),
       });
 
       dynamoMock.on(BatchWriteCommand).rejects(new Error('DynamoDB write failed'));
@@ -418,7 +419,7 @@ Task 2,PROJ-2,2,Extra,Columns,Here`;
       const csvContent = `Summary,Issue key,Issue id,Issue Type,Status,Priority,Assignee,Created,Updated,Resolved,Project key,Project name\n${rows}`;
 
       s3Mock.on(GetObjectCommand).resolves({
-        Body: Readable.from([csvContent]) as any,
+        Body: sdkStreamMixin(Readable.from([csvContent])),
       });
 
       dynamoMock.on(BatchWriteCommand).resolves({});
@@ -442,7 +443,7 @@ Task 2,PROJ-2,2,Extra,Columns,Here`;
       // Reset mocks for next batch
       s3Mock.reset();
       s3Mock.on(GetObjectCommand).resolves({
-        Body: Readable.from([csvContent]) as any,
+        Body: sdkStreamMixin(Readable.from([csvContent])),
       });
 
       // Batch 2: rows 12-21 (10 rows)
@@ -463,7 +464,7 @@ Task 2,PROJ-2,2,Extra,Columns,Here`;
       // Reset mocks for final batch
       s3Mock.reset();
       s3Mock.on(GetObjectCommand).resolves({
-        Body: Readable.from([csvContent]) as any,
+        Body: sdkStreamMixin(Readable.from([csvContent])),
       });
 
       // Batch 3: rows 22-26 (5 rows remaining)
