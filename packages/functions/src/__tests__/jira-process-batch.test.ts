@@ -565,23 +565,25 @@ Task 5,PROJ-5,5,Bug,Done,Medium,User5,2024-01-01,2024-01-02,2024-01-03,PROJ,Proj
         });
 
         // Capture BatchWrite calls to track which records were processed
-        dynamoMock.on(BatchWriteCommand).callsFake((input) => {
+        dynamoMock.on(BatchWriteCommand).callsFake((input: { RequestItems?: Record<string, Array<{ PutRequest?: { Item?: { issueKey?: string } } }>> }) => {
           // Get the actual table name from RequestItems (there should only be one)
-          const requestTables = Object.keys(input.RequestItems || {});
+          const requestTables = Object.keys(input.RequestItems ?? {});
           if (requestTables.length === 0) {
             return Promise.resolve({});
           }
 
           const actualTableName = requestTables[0];
-          const items = input.RequestItems[actualTableName];
+          const items = input.RequestItems?.[actualTableName];
 
           if (items && items.length > 0) {
-            items.forEach((item: any) => {
-              const issueKey = item.PutRequest.Item.issueKey;
-              if (processedIssueKeys.has(issueKey)) {
-                throw new Error(`Duplicate issue key detected: ${issueKey}`);
+            items.forEach((item: { PutRequest?: { Item?: { issueKey?: string } } }) => {
+              const issueKey = item.PutRequest?.Item?.issueKey;
+              if (issueKey) {
+                if (processedIssueKeys.has(issueKey)) {
+                  throw new Error(`Duplicate issue key detected: ${issueKey}`);
+                }
+                processedIssueKeys.add(issueKey);
               }
-              processedIssueKeys.add(issueKey);
             });
           }
           return Promise.resolve({});
