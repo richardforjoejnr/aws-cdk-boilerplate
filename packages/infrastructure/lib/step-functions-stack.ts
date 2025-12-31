@@ -69,7 +69,7 @@ export class StepFunctionsStack extends cdk.Stack {
     // Create the state machine
     this.helloWorldStateMachine = new sfn.StateMachine(this, 'HelloWorldStateMachine', {
       stateMachineName: `${stage}-hello-world-state-machine`,
-      definition,
+      definitionBody: sfn.DefinitionBody.fromChainable(definition),
       timeout: cdk.Duration.minutes(5),
       logs: {
         destination: logGroup,

@@ -1,9 +1,27 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { resolve } from 'path';
 
 export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
+  },
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        'jira-dashboard': resolve(__dirname, 'jira-dashboard.html'),
+      },
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'aws-vendor': ['aws-amplify'],
+          'chart-vendor': ['recharts'],
+          'http-vendor': ['axios'],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 600,
   },
 });

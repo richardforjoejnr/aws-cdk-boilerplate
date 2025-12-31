@@ -34,6 +34,12 @@ API_ID=$(aws cloudformation describe-stacks \
     --query "Stacks[0].Outputs[?OutputKey=='GraphQLApiId'].OutputValue" \
     --output text 2>/dev/null)
 
+# Get Jira Dashboard API URL (if stack exists)
+JIRA_API_URL=$(aws cloudformation describe-stacks \
+    --stack-name "${STACK_PREFIX}-jira-dashboard" \
+    --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" \
+    --output text 2>/dev/null || echo "")
+
 # Validate we got the required values
 if [ -z "$API_URL" ] || [ "$API_URL" == "None" ]; then
     echo -e "${RED}❌ Error: Could not retrieve API URL from CloudFormation${NC}"
@@ -56,6 +62,7 @@ VITE_AWS_REGION=${REGION}
 VITE_GRAPHQL_API_URL=${API_URL}
 VITE_GRAPHQL_API_KEY=${API_KEY}
 VITE_GRAPHQL_API_ID=${API_ID}
+VITE_JIRA_API_URL=${JIRA_API_URL}
 ENVEOF
 
 echo -e "${GREEN}✓ Configuration saved to ${ENV_FILE}${NC}"
@@ -64,5 +71,8 @@ echo -e "${GREEN}✓ Configuration saved to ${ENV_FILE}${NC}"
 cp "$ENV_FILE" "packages/web-app/.env"
 echo -e "${GREEN}✓ Copied to packages/web-app/.env for Vite${NC}"
 
-echo -e "${YELLOW}API URL:${NC} $API_URL"
-echo -e "${YELLOW}API Key:${NC} $API_KEY"
+echo -e "${YELLOW}GraphQL API URL:${NC} $API_URL"
+echo -e "${YELLOW}GraphQL API Key:${NC} $API_KEY"
+if [ -n "$JIRA_API_URL" ]; then
+    echo -e "${YELLOW}Jira API URL:${NC} $JIRA_API_URL"
+fi

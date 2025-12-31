@@ -45,6 +45,12 @@
     "drift:fix:dev": "./scripts/fix-drift-and-redeploy.sh dev",
     "drift:fix:test": "./scripts/fix-drift-and-redeploy.sh test",
     "drift:fix:prod": "./scripts/fix-drift-and-redeploy.sh prod",
+    "jira:deploy:dev": "./scripts/deploy-jira-dashboard.sh dev",
+    "jira:deploy:test": "./scripts/deploy-jira-dashboard.sh test",
+    "jira:deploy:prod": "./scripts/deploy-jira-dashboard.sh prod",
+    "jira:destroy:dev": "./scripts/destroy-jira-dashboard.sh dev",
+    "jira:destroy:test": "./scripts/destroy-jira-dashboard.sh test",
+    "jira:destroy:prod": "./scripts/destroy-jira-dashboard.sh prod",
     "prepare": "husky install || true"
   },
   "devDependencies": {
@@ -69,7 +75,7 @@
     ]
   },
   "engines": {
-    "node": ">=25.0.0",
+    "node": ">=18.0.0",
     "npm": ">=10.0.0"
   }
 }

@@ -29,7 +29,7 @@ permissions:
   contents: read
 
 env:
-  NODE_VERSION: '25'
+  NODE_VERSION: '20'
   AWS_REGION: 'us-east-1'
 
 jobs:
@@ -322,8 +322,11 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📱 Application URLs" >> $GITHUB_STEP_SUMMARY
+          echo "- **Main App:** [${WEBAPP_URL}](${WEBAPP_URL})" >> $GITHUB_STEP_SUMMARY
+          echo "- **Jira Dashboard:** [${WEBAPP_URL}/jira-dashboard.html](${WEBAPP_URL}/jira-dashboard.html)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Deployed Resources" >> $GITHUB_STEP_SUMMARY
-          echo "- **Web App URL:** [${WEBAPP_URL}](${WEBAPP_URL})" >> $GITHUB_STEP_SUMMARY
           echo "- **GraphQL API URL:** \`${API_URL}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **CloudFront Distribution:** \`${DIST_ID}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **S3 Bucket:** \`${BUCKET_NAME}\`" >> $GITHUB_STEP_SUMMARY

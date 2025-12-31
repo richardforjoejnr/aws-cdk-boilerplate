@@ -7,6 +7,7 @@ import { LambdaStack } from '../lib/lambda-stack.js';
 import { AppSyncStack } from '../lib/appsync-stack.js';
 import { StepFunctionsStack } from '../lib/step-functions-stack.js';
 import { WebAppStack } from '../lib/web-app-stack.js';
+import { JiraDashboardStack } from '../lib/jira-dashboard-stack.js';
 
 const app = new cdk.App();
 
@@ -60,6 +61,13 @@ new StepFunctionsStack(app, `${stackPrefix}-step-functions`, {
   description: `Step Functions state machines for ${stage} environment`,
   stackName: `${stackPrefix}-step-functions`,
   helloWorldFunction: lambdaStack.helloWorldFunction,
+});
+
+// Jira Dashboard Stack - Complete Jira analytics dashboard
+new JiraDashboardStack(app, `${stackPrefix}-jira-dashboard`, {
+  env,
+  description: `Jira Dashboard for ${stage} environment`,
+  stackName: `${stackPrefix}-jira-dashboard`,
 });
 
 // Web App Stack - Static website hosting (S3 + CloudFront)

@@ -26,7 +26,7 @@ export class AppSyncStack extends cdk.Stack {
     // Create the AppSync API
     this.api = new appsync.GraphqlApi(this, 'Api', {
       name: `${stage}-api`,
-      schema: appsync.SchemaFile.fromAsset(path.join(__dirname, '../schema/schema.graphql')),
+      definition: appsync.Definition.fromFile(path.join(__dirname, '../schema/schema.graphql')),
       authorizationConfig: {
         defaultAuthorization: {
           authorizationType: appsync.AuthorizationType.API_KEY,

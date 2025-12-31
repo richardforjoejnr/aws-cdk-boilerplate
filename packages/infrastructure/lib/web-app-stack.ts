@@ -76,20 +76,6 @@ export class WebAppStack extends cdk.Stack {
         compress: true,
       },
       defaultRootObject: 'index.html',
-      errorResponses: [
-        {
-          httpStatus: 404,
-          responseHttpStatus: 200,
-          responsePagePath: '/index.html',
-          ttl: cdk.Duration.minutes(5),
-        },
-        {
-          httpStatus: 403,
-          responseHttpStatus: 200,
-          responsePagePath: '/index.html',
-          ttl: cdk.Duration.minutes(5),
-        },
-      ],
       comment: `${stage} Web App Distribution`,
       priceClass: isProdLike
         ? cloudfront.PriceClass.PRICE_CLASS_ALL
