@@ -89,11 +89,6 @@ export const CurrentDashboard: React.FC<CurrentDashboardProps> = ({ uploadId }) 
     return issues.filter((issue) => issue.projectKey === selectedProject);
   };
 
-  // Get all unique issues from lists (this is our filtered dataset)
-  const filteredAllIssues = React.useMemo(() => {
-    return filterIssues(allIssues);
-  }, [selectedProject, allIssues]);
-
   // Filter lists
   const filteredLists = {
     openBugs: filterIssues(lists.openBugs),
@@ -101,8 +96,11 @@ export const CurrentDashboard: React.FC<CurrentDashboardProps> = ({ uploadId }) 
     unassignedIssues: filterIssues(lists.unassignedIssues),
   };
 
+  // Get all unique issues from lists (this is our filtered dataset)
+  const filteredAllIssues = filterIssues(allIssues);
+
   // Calculate filtered summary and charts based on filtered issues
-  const { filteredSummary, filteredCharts } = React.useMemo(() => {
+  const getFilteredData = () => {
     if (selectedProject === 'all') {
       return { filteredSummary: summary, filteredCharts: charts };
     }
@@ -177,7 +175,9 @@ export const CurrentDashboard: React.FC<CurrentDashboardProps> = ({ uploadId }) 
         assigneeDistribution: topAssignees,
       },
     };
-  }, [selectedProject, filteredAllIssues, summary, charts]);
+  };
+
+  const { filteredSummary, filteredCharts } = getFilteredData();
 
   // Helper function to render issue key as link
   const renderIssueKey = (issueKey: string) => {
