@@ -233,6 +233,7 @@ cleanup_all_log_groups() {
     )
 
     local total_deleted=0
+    local total_skipped=0
 
     for prefix in "${prefixes[@]}"; do
         echo -e "\n${YELLOW}Searching for log groups with prefix: ${prefix}${NC}"
@@ -246,16 +247,31 @@ cleanup_all_log_groups() {
 
         if [ -n "$log_groups" ]; then
             for log_group in $log_groups; do
-                echo -e "${YELLOW}  → Deleting: ${log_group}${NC}"
-                aws logs delete-log-group --log-group-name "$log_group" --region "$REGION" 2>/dev/null || true
-                ((total_deleted++))
+                # Check if log group is managed by CloudFormation
+                # Log groups created by CDK/CloudFormation often have retention policies
+                # and are tagged. We'll try to delete and handle errors gracefully.
+
+                echo -e "${YELLOW}  → Attempting to delete: ${log_group}${NC}"
+
+                if aws logs delete-log-group --log-group-name "$log_group" --region "$REGION" 2>/dev/null; then
+                    echo -e "${GREEN}    ✓ Deleted${NC}"
+                    ((total_deleted++))
+                else
+                    # Log group might be managed by CloudFormation or protected
+                    echo -e "${BLUE}    → Skipped (may be managed by CloudFormation)${NC}"
+                    ((total_skipped++))
+                fi
             done
         fi
     done
 
     if [ $total_deleted -gt 0 ]; then
-        echo -e "${GREEN}  ✓ Deleted ${total_deleted} log groups${NC}"
-    else
+        echo -e "${GREEN}  ✓ Deleted ${total_deleted} log group(s)${NC}"
+    fi
+    if [ $total_skipped -gt 0 ]; then
+        echo -e "${BLUE}  ℹ Skipped ${total_skipped} log group(s) (CloudFormation-managed)${NC}"
+    fi
+    if [ $total_deleted -eq 0 ] && [ $total_skipped -eq 0 ]; then
         echo -e "${GREEN}  ✓ No log groups found to delete${NC}"
     fi
 }
