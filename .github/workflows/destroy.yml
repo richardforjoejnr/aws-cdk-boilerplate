@@ -94,10 +94,20 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "✅ Successfully destroyed **${{ github.event.inputs.stage }}** environment" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Destroyed Stacks" >> $GITHUB_STEP_SUMMARY
+          echo "### Destroyed CloudFormation Stacks" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ github.event.inputs.stage }}-aws-boilerplate-jira-dashboard\`" >> $GITHUB_STEP_SUMMARY
           echo "- \`${{ github.event.inputs.stage }}-aws-boilerplate-appsync\`" >> $GITHUB_STEP_SUMMARY
           echo "- \`${{ github.event.inputs.stage }}-aws-boilerplate-step-functions\`" >> $GITHUB_STEP_SUMMARY
           echo "- \`${{ github.event.inputs.stage }}-aws-boilerplate-lambda\`" >> $GITHUB_STEP_SUMMARY
           echo "- \`${{ github.event.inputs.stage }}-aws-boilerplate-database\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ github.event.inputs.stage }}-aws-boilerplate-web-app\` (if deployed)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "⚠️ All data in these stacks has been permanently deleted." >> $GITHUB_STEP_SUMMARY
+          echo "### Cleaned Up Resources" >> $GITHUB_STEP_SUMMARY
+          echo "- 🗄️ DynamoDB Tables: \`main-table\`, \`jira-uploads\`, \`jira-issues\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 📦 S3 Buckets: \`jira-dashboard-csvs\`, \`web-app\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 📊 CloudWatch Log Groups: All Lambda, AppSync, Step Functions logs" >> $GITHUB_STEP_SUMMARY
+          echo "- 🌐 CloudFront Distributions: Disabled (full deletion in 15-60 mins)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ **All data has been permanently deleted.**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "💰 **No ongoing costs will be incurred from this environment.**" >> $GITHUB_STEP_SUMMARY

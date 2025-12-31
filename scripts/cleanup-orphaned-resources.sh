@@ -191,6 +191,118 @@ check_and_cleanup_failed_stacks() {
     fi
 }
 
+# Function to delete S3 bucket
+check_and_delete_s3_bucket() {
+    local bucket_name=$1
+
+    echo -e "\n${YELLOW}Checking S3 bucket: ${bucket_name}${NC}"
+
+    if aws s3 ls "s3://${bucket_name}" --region "$REGION" >/dev/null 2>&1; then
+        echo -e "${YELLOW}  → Bucket exists${NC}"
+
+        # Count objects
+        local object_count=$(aws s3 ls "s3://${bucket_name}" --recursive --region "$REGION" 2>/dev/null | wc -l || echo "0")
+        echo -e "${YELLOW}  → Bucket contains ${object_count} objects${NC}"
+
+        # Delete bucket and all contents
+        echo -e "${YELLOW}  → Deleting bucket and all contents...${NC}"
+        aws s3 rb "s3://${bucket_name}" --force --region "$REGION" 2>/dev/null || {
+            echo -e "${RED}  → Force delete failed, trying to empty first...${NC}"
+            aws s3 rm "s3://${bucket_name}" --recursive --region "$REGION" 2>/dev/null || true
+            aws s3 rb "s3://${bucket_name}" --region "$REGION" 2>/dev/null || true
+        }
+
+        echo -e "${GREEN}  ✓ Bucket deleted successfully${NC}"
+    else
+        echo -e "${GREEN}  ✓ Bucket does not exist${NC}"
+    fi
+}
+
+# Function to delete all log groups for a stage
+cleanup_all_log_groups() {
+    local stage=$1
+
+    echo -e "\n${YELLOW}Cleaning up all CloudWatch log groups for ${stage}...${NC}"
+
+    # Define log group prefixes to search
+    local prefixes=(
+        "/aws/lambda/${stage}-"
+        "/aws/appsync/${stage}-"
+        "/aws/stepfunctions/${stage}-"
+        "/aws/apigateway/${stage}-"
+    )
+
+    local total_deleted=0
+
+    for prefix in "${prefixes[@]}"; do
+        echo -e "\n${YELLOW}Searching for log groups with prefix: ${prefix}${NC}"
+
+        # Get all log groups with this prefix
+        local log_groups=$(aws logs describe-log-groups \
+            --log-group-name-prefix "$prefix" \
+            --region "$REGION" \
+            --query 'logGroups[*].logGroupName' \
+            --output text 2>/dev/null || echo "")
+
+        if [ -n "$log_groups" ]; then
+            for log_group in $log_groups; do
+                echo -e "${YELLOW}  → Deleting: ${log_group}${NC}"
+                aws logs delete-log-group --log-group-name "$log_group" --region "$REGION" 2>/dev/null || true
+                ((total_deleted++))
+            done
+        fi
+    done
+
+    if [ $total_deleted -gt 0 ]; then
+        echo -e "${GREEN}  ✓ Deleted ${total_deleted} log groups${NC}"
+    else
+        echo -e "${GREEN}  ✓ No log groups found to delete${NC}"
+    fi
+}
+
+# Function to delete CloudFront distribution
+check_and_delete_cloudfront_distribution() {
+    local stage=$1
+
+    echo -e "\n${YELLOW}Checking for CloudFront distributions for ${stage}...${NC}"
+
+    # Get distributions with tag Environment=${stage}
+    local distribution_ids=$(aws cloudfront list-distributions \
+        --region "$REGION" \
+        --query "DistributionList.Items[?contains(Comment, '${stage}')].Id" \
+        --output text 2>/dev/null || echo "")
+
+    if [ -n "$distribution_ids" ]; then
+        for dist_id in $distribution_ids; do
+            echo -e "${YELLOW}  → Found distribution: ${dist_id}${NC}"
+
+            # Get current config
+            local etag=$(aws cloudfront get-distribution-config --id "$dist_id" --query 'ETag' --output text 2>/dev/null)
+
+            if [ -n "$etag" ]; then
+                # Disable distribution first
+                echo -e "${YELLOW}  → Disabling distribution...${NC}"
+                aws cloudfront get-distribution-config --id "$dist_id" 2>/dev/null | \
+                    jq '.DistributionConfig | .Enabled = false' > /tmp/cf-config-${dist_id}.json
+
+                aws cloudfront update-distribution \
+                    --id "$dist_id" \
+                    --distribution-config file:///tmp/cf-config-${dist_id}.json \
+                    --if-match "$etag" \
+                    --region "$REGION" >/dev/null 2>&1 || true
+
+                rm -f /tmp/cf-config-${dist_id}.json
+
+                echo -e "${YELLOW}  ⏳ Distribution is being disabled (this takes 15-60 minutes)${NC}"
+                echo -e "${YELLOW}  → You may need to manually delete it later: aws cloudfront delete-distribution --id ${dist_id}${NC}"
+            fi
+        done
+        echo -e "${YELLOW}  ⚠️  CloudFront distributions cannot be immediately deleted${NC}"
+    else
+        echo -e "${GREEN}  ✓ No CloudFront distributions found${NC}"
+    fi
+}
+
 # Main cleanup logic
 echo -e "\n${YELLOW}Starting cleanup for ${STAGE} environment...${NC}\n"
 
@@ -202,12 +314,47 @@ STATE_MACHINE_LOG_GROUP="/aws/stepfunctions/${STAGE}-hello-world-state-machine"
 LAMBDA_STACK="${STAGE}-aws-boilerplate-lambda"
 STEP_FUNCTIONS_STACK="${STAGE}-aws-boilerplate-step-functions"
 
-# Clean up orphaned resources
-check_and_cleanup_failed_stacks "$STACK_PREFIX"
-check_and_delete_dynamodb_table "$MAIN_TABLE"
-check_and_delete_log_group "$LAMBDA_LOG_GROUP" "$LAMBDA_STACK"
-check_and_delete_log_group "$STATE_MACHINE_LOG_GROUP" "$STEP_FUNCTIONS_STACK"
+# Jira Dashboard resources
+JIRA_UPLOADS_TABLE="${STAGE}-jira-uploads"
+JIRA_ISSUES_TABLE="${STAGE}-jira-issues"
+JIRA_CSV_BUCKET="${STAGE}-jira-dashboard-csvs"
 
-echo -e "\n${GREEN}✅ Cleanup completed successfully!${NC}"
+# Web App resources
+WEB_APP_BUCKET="${STAGE}-aws-boilerplate-web-app"
+
+echo -e "${BLUE}╔════════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BLUE}║              Comprehensive Resource Cleanup                    ║${NC}"
+echo -e "${BLUE}╚════════════════════════════════════════════════════════════════╝${NC}"
+
+# 1. Clean up failed stacks first
+check_and_cleanup_failed_stacks "$STACK_PREFIX"
+
+# 2. Clean up DynamoDB tables
+echo -e "\n${BLUE}━━━ DynamoDB Tables ━━━${NC}"
+check_and_delete_dynamodb_table "$MAIN_TABLE"
+check_and_delete_dynamodb_table "$JIRA_UPLOADS_TABLE"
+check_and_delete_dynamodb_table "$JIRA_ISSUES_TABLE"
+
+# 3. Clean up S3 buckets
+echo -e "\n${BLUE}━━━ S3 Buckets ━━━${NC}"
+check_and_delete_s3_bucket "$JIRA_CSV_BUCKET"
+check_and_delete_s3_bucket "$WEB_APP_BUCKET"
+
+# 4. Clean up all CloudWatch log groups
+echo -e "\n${BLUE}━━━ CloudWatch Log Groups ━━━${NC}"
+cleanup_all_log_groups "$STAGE"
+
+# 5. Clean up CloudFront distributions
+echo -e "\n${BLUE}━━━ CloudFront Distributions ━━━${NC}"
+check_and_delete_cloudfront_distribution "$STAGE"
+
+# Summary
+echo -e "\n${GREEN}╔════════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║                  Cleanup Summary                               ║${NC}"
+echo -e "${GREEN}╚════════════════════════════════════════════════════════════════╝${NC}"
+echo -e "${GREEN}✅ Cleanup completed successfully!${NC}"
+echo -e "${GREEN}─────────────────────────────────────────────────────────────────${NC}"
+echo -e "${YELLOW}Note: CloudFront distributions (if any) are being disabled.${NC}"
+echo -e "${YELLOW}They will be fully deleted in 15-60 minutes.${NC}"
 echo -e "${GREEN}─────────────────────────────────────────────────────────────────${NC}"
 echo -e "${GREEN}You can now proceed with deployment.${NC}\n"
