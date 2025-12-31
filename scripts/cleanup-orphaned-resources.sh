@@ -238,28 +238,30 @@ cleanup_all_log_groups() {
     for prefix in "${prefixes[@]}"; do
         echo -e "\n${YELLOW}Searching for log groups with prefix: ${prefix}${NC}"
 
-        # Get all log groups with this prefix
-        local log_groups=$(aws logs describe-log-groups \
+        # Get all log groups with this prefix (ensure command always succeeds)
+        local log_groups=""
+        log_groups=$(aws logs describe-log-groups \
             --log-group-name-prefix "$prefix" \
             --region "$REGION" \
             --query 'logGroups[*].logGroupName' \
-            --output text 2>/dev/null || echo "")
+            --output text 2>/dev/null) || log_groups=""
 
-        if [ -n "$log_groups" ]; then
+        if [ -n "$log_groups" ] && [ "$log_groups" != "None" ]; then
             for log_group in $log_groups; do
-                # Check if log group is managed by CloudFormation
-                # Log groups created by CDK/CloudFormation often have retention policies
-                # and are tagged. We'll try to delete and handle errors gracefully.
+                # Skip if empty or None
+                if [ -z "$log_group" ] || [ "$log_group" = "None" ]; then
+                    continue
+                fi
 
                 echo -e "${YELLOW}  → Attempting to delete: ${log_group}${NC}"
 
                 if aws logs delete-log-group --log-group-name "$log_group" --region "$REGION" 2>/dev/null; then
                     echo -e "${GREEN}    ✓ Deleted${NC}"
-                    ((total_deleted++)) || true
+                    total_deleted=$((total_deleted + 1))
                 else
                     # Log group might be managed by CloudFormation or protected
                     echo -e "${BLUE}    → Skipped (may be managed by CloudFormation)${NC}"
-                    ((total_skipped++)) || true
+                    total_skipped=$((total_skipped + 1))
                 fi
             done
         fi
