@@ -248,6 +248,21 @@ export class JiraDashboardStack extends cdk.Stack {
       outputPath: '$.Payload',
     });
 
+    // Update state for next batch iteration - extracts nextStartRow and prepares for next loop
+    const prepareNextBatch = new sfn.Pass(this, 'PrepareNextBatch', {
+      parameters: {
+        'uploadId.$': '$.uploadId',
+        'timestamp.$': '$.timestamp',
+        'bucket.$': '$.bucket',
+        'key.$': '$.key',
+        'fileName.$': '$.fileName',
+        'startRow.$': '$.nextStartRow',
+        'batchSize.$': '$.batchSize',
+        'totalRows.$': '$.totalRows',
+        'hasMore.$': '$.hasMore',
+      },
+    });
+
     const finalizeTask = new tasks.LambdaInvoke(this, 'FinalizeTask', {
       lambdaFunction: finalizeUploadFunction,
       payload: sfn.TaskInput.fromObject({
@@ -259,8 +274,10 @@ export class JiraDashboardStack extends cdk.Stack {
     });
 
     const choice = new sfn.Choice(this, 'HasMoreBatches?')
-      .when(sfn.Condition.booleanEquals('$.hasMore', true), processBatchTask)
+      .when(sfn.Condition.booleanEquals('$.hasMore', true), prepareNextBatch)
       .otherwise(finalizeTask);
+
+    prepareNextBatch.next(processBatchTask);
 
     const definition = processBatchTask.next(choice);
 

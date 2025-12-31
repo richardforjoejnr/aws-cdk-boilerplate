@@ -67,7 +67,7 @@ Task 5,PROJ-5,5,Bug,Done,Medium,Charlie Brown,2024-01-01,2024-01-02,2024-01-03,P
       });
 
       // Verify DynamoDB calls
-      expect(dynamoMock.calls()).toHaveLength(2); // 1 BatchWrite + 1 Update
+      expect(dynamoMock.calls()).toHaveLength(3); // 1 Batch Claim + 1 BatchWrite + 1 Update
     });
 
     it('should handle large batches and return hasMore=true', async () => {
@@ -481,6 +481,252 @@ Task 2,PROJ-2,2,Extra,Columns,Here`;
       expect(batch3.hasMore).toBe(false);
       expect(batch3.processedRows).toBe(4);
       expect(batch3.nextStartRow).toBeUndefined();
+    });
+
+    it('should handle multiline CSV fields correctly', async () => {
+      // Real-world Jira CSVs often have multiline descriptions
+      const csvContent = `Summary,Issue key,Issue id,Issue Type,Status,Priority,Assignee,Created,Updated,Resolved,Project key,Project name,Description
+Task 1,PROJ-1,1,Story,Done,High,User1,2024-01-01,2024-01-02,2024-01-03,PROJ,Project,"This is a description"
+Task 2,PROJ-2,2,Bug,In Progress,Medium,User2,2024-01-01,2024-01-02,,PROJ,Project,"This description
+has multiple
+lines in it"
+Task 3,PROJ-3,3,Story,Done,Low,User3,2024-01-01,2024-01-02,2024-01-03,PROJ,Project,"Another
+multiline
+description with
+many lines"
+Task 4,PROJ-4,4,Task,To Do,High,User4,2024-01-01,2024-01-02,,PROJ,Project,"Simple desc"
+Task 5,PROJ-5,5,Bug,Done,Medium,User5,2024-01-01,2024-01-02,2024-01-03,PROJ,Project,"Last one"`;
+
+      const stream = Readable.from([csvContent]);
+
+      s3Mock.on(GetObjectCommand).resolves({
+        Body: sdkStreamMixin(stream),
+      });
+
+      dynamoMock.on(BatchWriteCommand).resolves({});
+      dynamoMock.on(UpdateCommand).resolves({});
+
+      const event = {
+        uploadId: 'test-multiline',
+        timestamp: '2024-01-01T00:00:00Z',
+        bucket: 'test-bucket',
+        key: 'test-key',
+        fileName: 'test.csv',
+        startRow: 2,
+        batchSize: 10,
+      };
+
+      // Act
+      const result = await handler(event);
+
+      // Assert - should process all 5 CSV records despite multiline fields
+      expect(result.processedRows).toBe(4);
+      expect(result.hasMore).toBe(false);
+
+      // Verify we got all the records
+      const batchWriteCalls = dynamoMock.commandCalls(BatchWriteCommand);
+      expect(batchWriteCalls.length).toBeGreaterThan(0);
+    });
+
+    it('should process complete CSV correctly with proper pagination (E2E simulation)', async () => {
+      // This test simulates the complete Step Functions workflow
+      // to ensure proper batch processing with nextStartRow updates
+
+      // Create a realistic CSV with 251 records (one extra for the skipped first row)
+      const expectedProcessedRecords = 250;
+      const batchSize = 100;
+      // We need 1 extra record because startRow=2 skips the first data row
+      const rows = Array.from({ length: expectedProcessedRecords + 1 }, (_, i) => {
+        const issueNum = i + 1;
+        return `Task ${issueNum},PROJ-${issueNum},${issueNum},Story,Done,High,User ${issueNum % 10},2024-01-01,2024-01-02,2024-01-03,PROJ,Project Name`;
+      }).join('\n');
+
+      const csvContent = `Summary,Issue key,Issue id,Issue Type,Status,Priority,Assignee,Created,Updated,Resolved,Project key,Project name\n${rows}`;
+
+      // Track all processed issue keys to ensure no duplicates and all are processed
+      const processedIssueKeys = new Set<string>();
+
+      // Simulate Step Functions loop
+      let currentStartRow = 2; // Start from row 2 (skip header)
+      let hasMore = true;
+      let iterationCount = 0;
+      const maxIterations = 10; // Safety limit to prevent infinite loops
+
+      while (hasMore && iterationCount < maxIterations) {
+        iterationCount++;
+
+        // Reset mocks for each iteration
+        s3Mock.reset();
+        dynamoMock.reset();
+
+        // Setup S3 mock to return the full CSV
+        s3Mock.on(GetObjectCommand).resolves({
+          Body: sdkStreamMixin(Readable.from([csvContent])),
+        });
+
+        // Capture BatchWrite calls to track which records were processed
+        dynamoMock.on(BatchWriteCommand).callsFake((input) => {
+          // Get the actual table name from RequestItems (there should only be one)
+          const requestTables = Object.keys(input.RequestItems || {});
+          if (requestTables.length === 0) {
+            return Promise.resolve({});
+          }
+
+          const actualTableName = requestTables[0];
+          const items = input.RequestItems[actualTableName];
+
+          if (items && items.length > 0) {
+            items.forEach((item: any) => {
+              const issueKey = item.PutRequest.Item.issueKey;
+              if (processedIssueKeys.has(issueKey)) {
+                throw new Error(`Duplicate issue key detected: ${issueKey}`);
+              }
+              processedIssueKeys.add(issueKey);
+            });
+          }
+          return Promise.resolve({});
+        });
+
+        // Mock UpdateCommand - handles both batch claim and progress update
+        dynamoMock.on(UpdateCommand).resolves({});
+
+        // Process current batch
+        const result = await handler({
+          uploadId: 'test-complete-csv',
+          timestamp: '2024-01-01T00:00:00Z',
+          bucket: 'test-bucket',
+          key: 'test-key',
+          fileName: 'large-jira-export.csv',
+          startRow: currentStartRow,
+          batchSize: batchSize,
+        });
+
+        // Track iteration progress for debugging if needed
+        // console.log(`Iteration ${iterationCount}: Processed ${result.processedRows} rows starting from ${currentStartRow}`);
+
+        // Verify the batch result
+        expect(result.uploadId).toBe('test-complete-csv');
+        expect(result.startRow).toBe(currentStartRow);
+        expect(result.batchSize).toBe(batchSize);
+        expect(result.processedRows).toBeGreaterThan(0);
+        expect(result.processedRows).toBeLessThanOrEqual(batchSize);
+
+        // Update for next iteration (this simulates the PrepareNextBatch Pass state)
+        hasMore = result.hasMore;
+        if (hasMore) {
+          expect(result.nextStartRow).toBeDefined();
+          expect(result.nextStartRow).toBe(currentStartRow + batchSize);
+          currentStartRow = result.nextStartRow!;
+        }
+      }
+
+      // Verify final state
+      expect(iterationCount).toBeLessThan(maxIterations); // Should complete without hitting safety limit
+      expect(hasMore).toBe(false); // Should have processed all records
+      expect(processedIssueKeys.size).toBe(expectedProcessedRecords); // All records should be processed
+      expect(iterationCount).toBe(Math.ceil(expectedProcessedRecords / batchSize)); // Should take expected number of batches
+
+      // Verify no duplicate records were processed
+      // Note: PROJ-1 is skipped because startRow=2, so we check PROJ-2 through PROJ-251
+      const uniqueKeys = Array.from(processedIssueKeys).sort();
+      for (let i = 2; i <= expectedProcessedRecords + 1; i++) {
+        expect(uniqueKeys).toContain(`PROJ-${i}`);
+      }
+
+      // Successfully processed all records - test passed!
+    });
+
+    it('should handle edge case: CSV with exactly batchSize records', async () => {
+      // Test edge case where total records = batchSize + 1 (to account for the first skipped row)
+      const batchSize = 1000;
+      // Need batchSize + 1 rows because the first data row gets skipped when startRow=2
+      const rows = Array.from({ length: batchSize + 1 }, (_, i) =>
+        `Task ${i+1},PROJ-${i+1},${i+1},Story,Done,High,User,2024-01-01,2024-01-02,2024-01-03,PROJ,Project`
+      ).join('\n');
+
+      const csvContent = `Summary,Issue key,Issue id,Issue Type,Status,Priority,Assignee,Created,Updated,Resolved,Project key,Project name\n${rows}`;
+      const stream = Readable.from([csvContent]);
+
+      s3Mock.on(GetObjectCommand).resolves({
+        Body: sdkStreamMixin(stream),
+      });
+
+      dynamoMock.on(BatchWriteCommand).resolves({});
+      dynamoMock.on(UpdateCommand).resolves({});
+
+      const event = {
+        uploadId: 'test-exact-batch-size',
+        timestamp: '2024-01-01T00:00:00Z',
+        bucket: 'test-bucket',
+        key: 'test-key',
+        fileName: 'test.csv',
+        startRow: 2,
+        batchSize,
+      };
+
+      // Act
+      const result = await handler(event);
+
+      // Assert - should process batchSize records
+      expect(result.processedRows).toBe(batchSize);
+      expect(result.hasMore).toBe(true); // We processed exactly batchSize records
+      expect(result.nextStartRow).toBe(2 + batchSize);
+    });
+
+    it('should handle edge case: CSV with batchSize + 1 records', async () => {
+      // Test edge case where we need 2 batches to process all records
+      const batchSize = 100;
+      // Need batchSize + 2 rows: 1 gets skipped initially, then batchSize processed, then 1 more
+      const totalRecords = batchSize + 2;
+      const rows = Array.from({ length: totalRecords }, (_, i) =>
+        `Task ${i+1},PROJ-${i+1},${i+1},Story,Done,High,User,2024-01-01,2024-01-02,2024-01-03,PROJ,Project`
+      ).join('\n');
+
+      const csvContent = `Summary,Issue key,Issue id,Issue Type,Status,Priority,Assignee,Created,Updated,Resolved,Project key,Project name\n${rows}`;
+
+      // Batch 1
+      s3Mock.on(GetObjectCommand).resolves({
+        Body: sdkStreamMixin(Readable.from([csvContent])),
+      });
+      dynamoMock.on(BatchWriteCommand).resolves({});
+      dynamoMock.on(UpdateCommand).resolves({});
+
+      const batch1Result = await handler({
+        uploadId: 'test-batch-plus-one',
+        timestamp: '2024-01-01T00:00:00Z',
+        bucket: 'test-bucket',
+        key: 'test-key',
+        fileName: 'test.csv',
+        startRow: 2,
+        batchSize,
+      });
+
+      expect(batch1Result.processedRows).toBe(batchSize);
+      expect(batch1Result.hasMore).toBe(true);
+      expect(batch1Result.nextStartRow).toBe(2 + batchSize);
+
+      // Batch 2
+      s3Mock.reset();
+      dynamoMock.reset();
+      s3Mock.on(GetObjectCommand).resolves({
+        Body: sdkStreamMixin(Readable.from([csvContent])),
+      });
+      dynamoMock.on(BatchWriteCommand).resolves({});
+      dynamoMock.on(UpdateCommand).resolves({});
+
+      const batch2Result = await handler({
+        uploadId: 'test-batch-plus-one',
+        timestamp: '2024-01-01T00:00:00Z',
+        bucket: 'test-bucket',
+        key: 'test-key',
+        fileName: 'test.csv',
+        startRow: batch1Result.nextStartRow!,
+        batchSize,
+      });
+
+      expect(batch2Result.processedRows).toBe(1);
+      expect(batch2Result.hasMore).toBe(false);
+      expect(batch2Result.nextStartRow).toBeUndefined();
     });
   });
 });

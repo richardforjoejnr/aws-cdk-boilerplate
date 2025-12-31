@@ -32,6 +32,129 @@ export interface Metrics {
     bugsClosed: number;
   };
   unassigned: number;
+
+  // Epic Metrics (Strategic Value)
+  epics?: {
+    completed: number;
+    inProgress: number;
+    blocked: number;
+    completionRate: number; // % completed
+    avgCycleTime: number; // days
+    health: {
+      onTrack: number;
+      atRisk: number;
+      delayed: number;
+    };
+  };
+
+  // Story Metrics (Feature Value)
+  stories?: {
+    completed: number;
+    storyPointsDelivered: number;
+    inProgress: number;
+    throughput: number; // per week
+    avgCycleTime: number; // days
+    byStatus: {
+      toDo: number;
+      inProgress: number;
+      done: number;
+      blocked: number;
+    };
+  };
+
+  // Task Metrics (Execution Value)
+  tasks?: {
+    completed: number;
+    inProgress: number;
+    completionRate: number; // %
+    overdue: number;
+    distributionByParent: Record<string, number>;
+  };
+
+  // Bug Metrics (Quality)
+  bugMetrics?: {
+    openBySeverity: {
+      critical: number;
+      high: number;
+      medium: number;
+      low: number;
+    };
+    createdVsClosed: {
+      created: number;
+      closed: number;
+      trend: 'improving' | 'degrading' | 'stable';
+    };
+    avgAge: number; // days
+    avgResolutionTime: number; // days
+    backlogGrowth: number; // net change
+    escapedDefects: number;
+    byComponent: Record<string, number>;
+  };
+
+  // Spike Metrics (Research & Risk Reduction)
+  spikes?: {
+    inFlight: number;
+    completed: number;
+    pending: number;
+    avgDuration: number; // days
+    outcomes: {
+      ledToStory: number;
+      noAction: number;
+      blocked: number;
+    };
+  };
+
+  // Risk Metrics (Risk Management)
+  risks?: {
+    new: number;
+    active: number;
+    mitigated: number;
+    avgAge: number; // days
+    bySeverity: {
+      high: number;
+      medium: number;
+      low: number;
+    };
+    byCategory: Record<string, number>;
+  };
+
+  // ADR Metrics (Technical Governance)
+  adrs?: {
+    approved: number;
+    pendingReview: number;
+    inProgress: number;
+    avgDecisionVelocity: number; // days from proposal to approval
+    byCategory: Record<string, number>;
+  };
+
+  // Escalated Defect Metrics (Critical Issues)
+  escalatedDefects?: {
+    active: number;
+    avgResolutionTime: number; // hours
+    bySeverity: {
+      p0: number;
+      p1: number;
+      p2: number;
+    };
+    avgAge: number; // hours
+    bySource: {
+      customer: number;
+      internal: number;
+      security: number;
+    };
+  };
+
+  // Initiative Metrics (Business Outcomes)
+  initiatives?: {
+    delivered: number;
+    avgProgress: number; // % complete
+    atRisk: number;
+    avgROI: number;
+    dependencyHealth: {
+      blocked: number;
+      onTrack: number;
+    };
+  };
 }
 
 export interface JiraIssue {

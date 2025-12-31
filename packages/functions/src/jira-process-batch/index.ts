@@ -62,6 +62,48 @@ export const handler = async (event: ProcessBatchInput): Promise<ProcessBatchOut
   const { uploadId, timestamp, bucket, key, fileName, startRow, batchSize } = event;
 
   try {
+    // Use conditional write to claim this batch (distributed lock)
+    // This prevents duplicate processing if multiple executions are running
+    const batchId = `${uploadId}#${startRow}`;
+    try {
+      await dynamoClient.send(
+        new UpdateCommand({
+          TableName: UPLOADS_TABLE,
+          Key: {
+            uploadId: batchId, // Use batch-specific ID
+            timestamp: timestamp,
+          },
+          UpdateExpression: 'SET #status = :processing, claimedAt = :now',
+          ConditionExpression: 'attribute_not_exists(uploadId)', // Only succeed if batch hasn't been claimed
+          ExpressionAttributeNames: {
+            '#status': 'status',
+          },
+          ExpressionAttributeValues: {
+            ':processing': 'processing',
+            ':now': new Date().toISOString(),
+          },
+        })
+      );
+    } catch (error) {
+      // If conditional check fails, this batch is already being processed
+      if (error instanceof Error && error.name === 'ConditionalCheckFailedException') {
+        console.log(`Batch ${startRow} already claimed by another execution, skipping...`);
+        return {
+          uploadId,
+          timestamp,
+          bucket,
+          key,
+          fileName,
+          startRow,
+          batchSize,
+          totalRows: event.totalRows || 0,
+          processedRows: 0, // Return 0 since we didn't process anything
+          hasMore: false, // Don't continue processing
+        };
+      }
+      throw error;
+    }
+
     // Get CSV from S3
     const getObjectResponse = await s3Client.send(
       new GetObjectCommand({
@@ -93,16 +135,16 @@ export const handler = async (event: ProcessBatchInput): Promise<ProcessBatchOut
     });
 
     let rowCount = 0;
-    let currentRow = 1; // Start at 1 (header is row 0)
+    let recordIndex = 1; // Track which CSV record we're on (starts at 1, after header row 0)
 
     for await (const row of bodyStream.pipe(parser)) {
-      // Skip rows before startRow
-      if (currentRow < startRow) {
-        currentRow++;
+      // Skip records before startRow
+      if (recordIndex < startRow) {
+        recordIndex++;
         continue;
       }
 
-      // Stop if we've processed batchSize rows
+      // Stop if we've processed batchSize records
       if (rowCount >= batchSize) {
         // Properly destroy the streams to prevent hanging
         parser.destroy();
@@ -110,9 +152,9 @@ export const handler = async (event: ProcessBatchInput): Promise<ProcessBatchOut
         break;
       }
 
-      currentRow++;
+      recordIndex++;
+      rowCount++;
       try {
-        rowCount++;
         const record = row as CsvRecord;
 
         // Map CSV columns to our schema
@@ -150,7 +192,7 @@ export const handler = async (event: ProcessBatchInput): Promise<ProcessBatchOut
 
         issues.push(issue);
       } catch (error) {
-        console.error(`Error parsing row ${rowCount}:`, error);
+        console.error(`Error parsing CSV record ${recordIndex}:`, error);
       }
     }
 

@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { DashboardData } from '../types';
 import jiraApi from '../services/api';
 import { format } from 'date-fns';
+import { WorkTypeMetrics } from './WorkTypeMetrics';
 
 interface CurrentDashboardProps {
   uploadId: string;
@@ -14,6 +15,7 @@ export const CurrentDashboard: React.FC<CurrentDashboardProps> = ({ uploadId }) 
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
+  const [selectedProject, setSelectedProject] = useState<string>('all');
 
   useEffect(() => {
     void loadDashboard();
@@ -62,6 +64,38 @@ export const CurrentDashboard: React.FC<CurrentDashboardProps> = ({ uploadId }) 
 
   const { summary, charts, lists, upload } = data;
 
+  // Extract unique projects from all issues
+  const allIssues = [
+    ...lists.openBugs,
+    ...lists.recentIssues,
+    ...lists.unassignedIssues,
+  ];
+
+  const projectsMap = new Map<string, { key: string; name: string }>();
+  allIssues.forEach((issue) => {
+    if (issue.projectKey && !projectsMap.has(issue.projectKey)) {
+      projectsMap.set(issue.projectKey, {
+        key: issue.projectKey,
+        name: issue.projectName || issue.projectKey,
+      });
+    }
+  });
+
+  const projects = Array.from(projectsMap.values()).sort((a, b) => a.key.localeCompare(b.key));
+
+  // Filter function for issues
+  const filterIssues = (issues: typeof allIssues) => {
+    if (selectedProject === 'all') return issues;
+    return issues.filter((issue) => issue.projectKey === selectedProject);
+  };
+
+  // Filter lists
+  const filteredLists = {
+    openBugs: filterIssues(lists.openBugs),
+    recentIssues: filterIssues(lists.recentIssues),
+    unassignedIssues: filterIssues(lists.unassignedIssues),
+  };
+
   // Helper function to render issue key as link
   const renderIssueKey = (issueKey: string) => {
     const jiraBaseUrl = upload.jiraBaseUrl || 'https://vocovo.atlassian.net';
@@ -88,6 +122,28 @@ export const CurrentDashboard: React.FC<CurrentDashboardProps> = ({ uploadId }) 
           <p><strong>Total Issues:</strong> {summary.totalIssues}</p>
         </div>
       </div>
+
+      {/* Project Filter */}
+      {projects.length > 1 && (
+        <div style={styles.filterSection}>
+          <label htmlFor="project-filter" style={styles.filterLabel}>
+            <strong>Filter by Project:</strong>
+          </label>
+          <select
+            id="project-filter"
+            value={selectedProject}
+            onChange={(e) => setSelectedProject(e.target.value)}
+            style={styles.filterSelect}
+          >
+            <option value="all">All Projects</option>
+            {projects.map((project) => (
+              <option key={project.key} value={project.key}>
+                {project.key} - {project.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div style={styles.summaryGrid}>
@@ -148,23 +204,17 @@ export const CurrentDashboard: React.FC<CurrentDashboardProps> = ({ uploadId }) 
         <div style={styles.card}>
           <h3 style={styles.cardTitle}>Status Distribution</h3>
           <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={charts.statusDistribution}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                outerRadius={80}
-                fill="#8884d8"
-                dataKey="value"
-              >
+            <BarChart data={charts.statusDistribution}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} />
+              <YAxis />
+              <Tooltip />
+              <Bar dataKey="value" fill="#8884d8">
                 {charts.statusDistribution.map((_, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
+              </Bar>
+            </BarChart>
           </ResponsiveContainer>
         </div>
 
@@ -223,49 +273,52 @@ export const CurrentDashboard: React.FC<CurrentDashboardProps> = ({ uploadId }) 
       <div style={styles.listsGrid}>
         {/* Open Bugs */}
         <div style={styles.card}>
-          <h3 style={styles.cardTitle}>Open Bugs ({lists.openBugs.length})</h3>
+          <h3 style={styles.cardTitle}>Open Bugs ({filteredLists.openBugs.length})</h3>
           <div style={styles.list}>
-            {lists.openBugs.slice(0, 10).map((issue) => (
+            {filteredLists.openBugs.slice(0, 10).map((issue) => (
               <div key={issue.issueKey} style={styles.listItem}>
                 {renderIssueKey(issue.issueKey)}
                 <span style={styles.issueSummary}>{issue.summary}</span>
                 <span style={styles.issuePriority}>{issue.priority}</span>
               </div>
             ))}
-            {lists.openBugs.length === 0 && <p style={styles.emptyList}>No open bugs</p>}
+            {filteredLists.openBugs.length === 0 && <p style={styles.emptyList}>No open bugs</p>}
           </div>
         </div>
 
         {/* Unassigned Issues */}
         <div style={styles.card}>
-          <h3 style={styles.cardTitle}>Unassigned Issues ({lists.unassignedIssues.length})</h3>
+          <h3 style={styles.cardTitle}>Unassigned Issues ({filteredLists.unassignedIssues.length})</h3>
           <div style={styles.list}>
-            {lists.unassignedIssues.slice(0, 10).map((issue) => (
+            {filteredLists.unassignedIssues.slice(0, 10).map((issue) => (
               <div key={issue.issueKey} style={styles.listItem}>
                 {renderIssueKey(issue.issueKey)}
                 <span style={styles.issueSummary}>{issue.summary}</span>
                 <span style={styles.issueType}>{issue.issueType}</span>
               </div>
             ))}
-            {lists.unassignedIssues.length === 0 && <p style={styles.emptyList}>All issues assigned</p>}
+            {filteredLists.unassignedIssues.length === 0 && <p style={styles.emptyList}>All issues assigned</p>}
           </div>
         </div>
 
         {/* Recent Issues */}
         <div style={styles.card}>
-          <h3 style={styles.cardTitle}>Recent Issues ({lists.recentIssues.length})</h3>
+          <h3 style={styles.cardTitle}>Recent Issues ({filteredLists.recentIssues.length})</h3>
           <div style={styles.list}>
-            {lists.recentIssues.slice(0, 20).map((issue) => (
+            {filteredLists.recentIssues.slice(0, 20).map((issue) => (
               <div key={issue.issueKey} style={styles.listItem}>
                 {renderIssueKey(issue.issueKey)}
                 <span style={styles.issueSummary}>{issue.summary}</span>
                 <span style={styles.issueType}>{issue.issueType}</span>
               </div>
             ))}
-            {lists.recentIssues.length === 0 && <p style={styles.emptyList}>No recent issues</p>}
+            {filteredLists.recentIssues.length === 0 && <p style={styles.emptyList}>No recent issues</p>}
           </div>
         </div>
       </div>
+
+      {/* Work Type Metrics */}
+      <WorkTypeMetrics metrics={summary} />
     </div>
   );
 };
@@ -312,6 +365,29 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '20px',
     fontSize: '14px',
     color: '#666',
+  },
+  filterSection: {
+    marginBottom: '20px',
+    padding: '16px',
+    backgroundColor: '#f5f5f5',
+    borderRadius: '8px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+  },
+  filterLabel: {
+    fontSize: '14px',
+    color: '#333',
+    marginBottom: '0',
+  },
+  filterSelect: {
+    padding: '8px 12px',
+    fontSize: '14px',
+    borderRadius: '4px',
+    border: '1px solid #ccc',
+    backgroundColor: '#fff',
+    cursor: 'pointer',
+    minWidth: '250px',
   },
   summaryGrid: {
     display: 'grid',
