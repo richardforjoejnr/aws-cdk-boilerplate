@@ -89,12 +89,95 @@ export const CurrentDashboard: React.FC<CurrentDashboardProps> = ({ uploadId }) 
     return issues.filter((issue) => issue.projectKey === selectedProject);
   };
 
+  // Get all unique issues from lists (this is our filtered dataset)
+  const filteredAllIssues = React.useMemo(() => {
+    return filterIssues(allIssues);
+  }, [selectedProject, allIssues]);
+
   // Filter lists
   const filteredLists = {
     openBugs: filterIssues(lists.openBugs),
     recentIssues: filterIssues(lists.recentIssues),
     unassignedIssues: filterIssues(lists.unassignedIssues),
   };
+
+  // Calculate filtered summary and charts based on filtered issues
+  const { filteredSummary, filteredCharts } = React.useMemo(() => {
+    if (selectedProject === 'all') {
+      return { filteredSummary: summary, filteredCharts: charts };
+    }
+
+    // Calculate metrics from filtered issues
+    const statusCounts = new Map<string, number>();
+    const priorityCounts = new Map<string, number>();
+    const typeCounts = new Map<string, number>();
+    const assigneeCounts = new Map<string, number>();
+    let bugsCount = 0;
+    let openBugsCount = 0;
+    let unassignedCount = 0;
+
+    filteredAllIssues.forEach((issue) => {
+      // Status distribution
+      const status = issue.status || 'Unknown';
+      statusCounts.set(status, (statusCounts.get(status) || 0) + 1);
+
+      // Priority distribution
+      const priority = issue.priority || 'Unknown';
+      priorityCounts.set(priority, (priorityCounts.get(priority) || 0) + 1);
+
+      // Type distribution
+      const type = issue.issueType || 'Unknown';
+      typeCounts.set(type, (typeCounts.get(type) || 0) + 1);
+
+      // Assignee distribution
+      const assignee = issue.assignee || 'Unassigned';
+      assigneeCounts.set(assignee, (assigneeCounts.get(assignee) || 0) + 1);
+
+      // Count bugs
+      if (type.toLowerCase().includes('bug') || type === 'Escalated Defect') {
+        bugsCount++;
+        // Check if bug is open (not in Done/Closed/Resolved status)
+        const isDone = status.toLowerCase().includes('done') ||
+                      status.toLowerCase().includes('closed') ||
+                      status.toLowerCase().includes('resolved');
+        if (!isDone) {
+          openBugsCount++;
+        }
+      }
+
+      // Count unassigned
+      if (assignee === 'Unassigned' || !assignee) {
+        unassignedCount++;
+      }
+    });
+
+    // Convert maps to chart data format (top 10 for assignees)
+    const topAssignees = Array.from(assigneeCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([name, value]) => ({ name, value }));
+
+    return {
+      filteredSummary: {
+        ...summary,
+        totalIssues: filteredAllIssues.length,
+        bugs: {
+          ...summary.bugs,
+          total: bugsCount,
+          open: openBugsCount,
+        },
+        unassigned: unassignedCount,
+        // Note: thisMonth metrics would require created/resolved dates
+        // Keeping original for now
+      },
+      filteredCharts: {
+        statusDistribution: Array.from(statusCounts.entries()).map(([name, value]) => ({ name, value })),
+        priorityDistribution: Array.from(priorityCounts.entries()).map(([name, value]) => ({ name, value })),
+        typeDistribution: Array.from(typeCounts.entries()).map(([name, value]) => ({ name, value })),
+        assigneeDistribution: topAssignees,
+      },
+    };
+  }, [selectedProject, filteredAllIssues, summary, charts]);
 
   // Helper function to render issue key as link
   const renderIssueKey = (issueKey: string) => {
@@ -151,11 +234,11 @@ export const CurrentDashboard: React.FC<CurrentDashboardProps> = ({ uploadId }) 
           <h3 style={styles.cardTitle}>This Month</h3>
           <div style={styles.statRow}>
             <div style={styles.stat}>
-              <div style={styles.statValue}>{summary.thisMonth.created}</div>
+              <div style={styles.statValue}>{filteredSummary.thisMonth.created}</div>
               <div style={styles.statLabel}>Created</div>
             </div>
             <div style={styles.stat}>
-              <div style={styles.statValue}>{summary.thisMonth.closed}</div>
+              <div style={styles.statValue}>{filteredSummary.thisMonth.closed}</div>
               <div style={styles.statLabel}>Closed</div>
             </div>
           </div>
@@ -165,11 +248,11 @@ export const CurrentDashboard: React.FC<CurrentDashboardProps> = ({ uploadId }) 
           <h3 style={styles.cardTitle}>Bugs</h3>
           <div style={styles.statRow}>
             <div style={styles.stat}>
-              <div style={styles.statValue}>{summary.bugs.total}</div>
+              <div style={styles.statValue}>{filteredSummary.bugs.total}</div>
               <div style={styles.statLabel}>Total</div>
             </div>
             <div style={styles.stat}>
-              <div style={{ ...styles.statValue, color: '#ff4444' }}>{summary.bugs.open}</div>
+              <div style={{ ...styles.statValue, color: '#ff4444' }}>{filteredSummary.bugs.open}</div>
               <div style={styles.statLabel}>Open</div>
             </div>
           </div>
@@ -179,11 +262,11 @@ export const CurrentDashboard: React.FC<CurrentDashboardProps> = ({ uploadId }) 
           <h3 style={styles.cardTitle}>Bugs This Month</h3>
           <div style={styles.statRow}>
             <div style={styles.stat}>
-              <div style={styles.statValue}>{summary.thisMonth.bugsCreated}</div>
+              <div style={styles.statValue}>{filteredSummary.thisMonth.bugsCreated}</div>
               <div style={styles.statLabel}>Created</div>
             </div>
             <div style={styles.stat}>
-              <div style={styles.statValue}>{summary.thisMonth.bugsClosed}</div>
+              <div style={styles.statValue}>{filteredSummary.thisMonth.bugsClosed}</div>
               <div style={styles.statLabel}>Closed</div>
             </div>
           </div>
@@ -192,7 +275,7 @@ export const CurrentDashboard: React.FC<CurrentDashboardProps> = ({ uploadId }) 
         <div style={styles.card}>
           <h3 style={styles.cardTitle}>Unassigned</h3>
           <div style={styles.stat}>
-            <div style={{ ...styles.statValue, color: '#ff8800' }}>{summary.unassigned}</div>
+            <div style={{ ...styles.statValue, color: '#ff8800' }}>{filteredSummary.unassigned}</div>
             <div style={styles.statLabel}>Issues</div>
           </div>
         </div>
@@ -204,13 +287,13 @@ export const CurrentDashboard: React.FC<CurrentDashboardProps> = ({ uploadId }) 
         <div style={styles.card}>
           <h3 style={styles.cardTitle}>Status Distribution</h3>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={charts.statusDistribution}>
+            <BarChart data={filteredCharts.statusDistribution}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} />
               <YAxis />
               <Tooltip />
               <Bar dataKey="value" fill="#8884d8">
-                {charts.statusDistribution.map((_, index) => (
+                {filteredCharts.statusDistribution.map((_, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Bar>
@@ -222,13 +305,13 @@ export const CurrentDashboard: React.FC<CurrentDashboardProps> = ({ uploadId }) 
         <div style={styles.card}>
           <h3 style={styles.cardTitle}>Priority Distribution</h3>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={charts.priorityDistribution}>
+            <BarChart data={filteredCharts.priorityDistribution}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" />
               <YAxis />
               <Tooltip />
               <Bar dataKey="value" fill="#8884d8">
-                {charts.priorityDistribution.map((_, index) => (
+                {filteredCharts.priorityDistribution.map((_, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Bar>
@@ -240,13 +323,13 @@ export const CurrentDashboard: React.FC<CurrentDashboardProps> = ({ uploadId }) 
         <div style={styles.card}>
           <h3 style={styles.cardTitle}>Issue Type Distribution</h3>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={charts.typeDistribution}>
+            <BarChart data={filteredCharts.typeDistribution}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} />
               <YAxis />
               <Tooltip />
               <Bar dataKey="value" fill="#82ca9d">
-                {charts.typeDistribution.map((_, index) => (
+                {filteredCharts.typeDistribution.map((_, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Bar>
@@ -258,7 +341,7 @@ export const CurrentDashboard: React.FC<CurrentDashboardProps> = ({ uploadId }) 
         <div style={styles.card}>
           <h3 style={styles.cardTitle}>Top Assignees</h3>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={charts.assigneeDistribution} layout="vertical">
+            <BarChart data={filteredCharts.assigneeDistribution} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis type="number" />
               <YAxis dataKey="name" type="category" width={150} />
