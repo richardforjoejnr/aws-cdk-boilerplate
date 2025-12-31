@@ -104,6 +104,9 @@ export const handler = async (event: ProcessBatchInput): Promise<ProcessBatchOut
 
       // Stop if we've processed batchSize rows
       if (rowCount >= batchSize) {
+        // Properly destroy the streams to prevent hanging
+        parser.destroy();
+        bodyStream.destroy();
         break;
       }
 
@@ -150,6 +153,10 @@ export const handler = async (event: ProcessBatchInput): Promise<ProcessBatchOut
         console.error(`Error parsing row ${rowCount}:`, error);
       }
     }
+
+    // Ensure streams are properly destroyed after loop completes
+    parser.destroy();
+    bodyStream.destroy();
 
     console.log(`Parsed ${issues.length} issues from batch starting at row ${startRow}`);
 

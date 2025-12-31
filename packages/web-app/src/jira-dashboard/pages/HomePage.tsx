@@ -120,12 +120,12 @@ export const HomePage: React.FC = () => {
                       </div>
                       <div style={styles.uploadStats}>
                         <span style={getStatusStyle(upload.status)}>{upload.status.toUpperCase()}</span>
-                        {upload.status === 'processing' && upload.processedIssues !== undefined && upload.totalIssues ? (
+                        {upload.status === 'processing' && upload.processedIssues !== undefined ? (
                           <span style={styles.progressText}>
-                            {upload.processedIssues}/{upload.totalIssues} issues ({Math.round((upload.processedIssues / upload.totalIssues) * 100)}%)
+                            {upload.processedIssues.toLocaleString()} issues processed
                           </span>
                         ) : upload.totalIssues ? (
-                          <span style={styles.issueCount}>{upload.totalIssues} issues</span>
+                          <span style={styles.issueCount}>{upload.totalIssues.toLocaleString()} issues</span>
                         ) : null}
                       </div>
                     </div>
