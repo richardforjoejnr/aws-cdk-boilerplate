@@ -28,6 +28,8 @@ phases:
       - echo "Synthesizing CDK stacks..."
       - cd packages/infrastructure
       - npx cdk synth
+      - echo "Bootstrapping CDK (if needed)..."
+      - npx cdk bootstrap --require-approval never || echo "Bootstrap already exists or failed - continuing anyway"
       - echo "Deploying to $STAGE environment..."
       - npx cdk deploy --all --require-approval never
 
