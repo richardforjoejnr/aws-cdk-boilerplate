@@ -25,11 +25,16 @@ phases:
       - npm run lint
       - echo "Running tests..."
       - npm run test
-      - echo "Synthesizing CDK stacks..."
+      - echo "Changing to infrastructure directory..."
       - cd packages/infrastructure
-      - npx cdk synth
       - echo "Bootstrapping CDK (if needed)..."
-      - npx cdk bootstrap --require-approval never || echo "Bootstrap already exists or failed - continuing anyway"
+      - |
+        AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        AWS_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+        echo "Bootstrapping account $AWS_ACCOUNT_ID in region $AWS_REGION"
+        npx cdk bootstrap aws://$AWS_ACCOUNT_ID/$AWS_REGION --require-approval never || echo "Bootstrap already exists or continuing anyway"
+      - echo "Synthesizing CDK stacks..."
+      - npx cdk synth
       - echo "Deploying to $STAGE environment..."
       - npx cdk deploy --all --require-approval never
 
