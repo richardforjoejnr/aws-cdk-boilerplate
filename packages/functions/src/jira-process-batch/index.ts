@@ -425,6 +425,7 @@ function processIssue(issue: JiraIssue, metrics: BatchMetrics, now: Date) {
 }
 
 // Merge two metrics objects (used for multi-batch accumulation)
+// @ts-expect-error - Reserved for future use in cross-batch metric merging
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function mergeMetrics(target: BatchMetrics, source: BatchMetrics): BatchMetrics {
   // Sum numeric values
