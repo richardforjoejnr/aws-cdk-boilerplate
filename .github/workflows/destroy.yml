@@ -105,6 +105,7 @@ jobs:
           echo "### Cleaned Up Resources" >> $GITHUB_STEP_SUMMARY
           echo "- 🗄️ DynamoDB Tables: \`main-table\`, \`jira-uploads\`, \`jira-issues\`" >> $GITHUB_STEP_SUMMARY
           echo "- 📦 S3 Buckets: \`jira-dashboard-csvs\`, \`web-app\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔄 Step Functions: \`jira-csv-processing\`" >> $GITHUB_STEP_SUMMARY
           echo "- 📊 CloudWatch Log Groups: All Lambda, AppSync, Step Functions logs" >> $GITHUB_STEP_SUMMARY
           echo "- 🌐 CloudFront Distributions: Disabled (full deletion in 15-60 mins)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
