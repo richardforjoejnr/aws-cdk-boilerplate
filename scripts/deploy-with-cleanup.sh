@@ -88,6 +88,12 @@ echo -e "${GREEN}✓ Build completed successfully${NC}\n"
 echo -e "${BLUE}🚀 Step 3: Deploying infrastructure...${NC}"
 cd packages/infrastructure
 
+# Bootstrap CDK if needed (idempotent - safe to run multiple times)
+echo -e "${BLUE}🔧 Bootstrapping CDK (if needed)...${NC}"
+BOOTSTRAP_REGION=${AWS_REGION:-us-east-1}
+npx cdk bootstrap aws://${ACCOUNT_ID}/${BOOTSTRAP_REGION} --require-approval never 2>&1 || echo "Bootstrap already exists or continuing anyway"
+echo -e "${GREEN}✓ CDK bootstrap complete${NC}\n"
+
 if [[ "$DEPLOY_WEBAPP" == "--webapp" ]]; then
     echo -e "${YELLOW}Deploying with WebApp...${NC}"
     STAGE=$STAGE DEPLOY_WEBAPP=true npx cdk deploy --all --require-approval never

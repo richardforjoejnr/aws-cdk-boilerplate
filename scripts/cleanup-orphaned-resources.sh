@@ -337,6 +337,69 @@ check_and_delete_cloudfront_distribution() {
     return 0
 }
 
+# Function to delete Step Functions state machines
+check_and_delete_state_machines() {
+    local stage=$1
+
+    echo -e "\n${YELLOW}Checking for Step Functions state machines for ${stage}...${NC}"
+
+    # Get all state machines with the stage prefix
+    local state_machines=$(aws stepfunctions list-state-machines \
+        --region "$REGION" \
+        --query "stateMachines[?contains(name, '${stage}-')].stateMachineArn" \
+        --output text 2>/dev/null || echo "")
+
+    if [ -n "$state_machines" ]; then
+        local total_deleted=0
+
+        for state_machine_arn in $state_machines; do
+            # Get state machine name from ARN
+            local state_machine_name=$(echo "$state_machine_arn" | awk -F: '{print $NF}')
+
+            echo -e "${YELLOW}  → Found state machine: ${state_machine_name}${NC}"
+
+            # Check if there are running executions
+            local running_executions=$(aws stepfunctions list-executions \
+                --state-machine-arn "$state_machine_arn" \
+                --status-filter RUNNING \
+                --region "$REGION" \
+                --query 'executions[*].executionArn' \
+                --output text 2>/dev/null || echo "")
+
+            if [ -n "$running_executions" ]; then
+                echo -e "${YELLOW}  → Stopping running executions...${NC}"
+                for execution_arn in $running_executions; do
+                    aws stepfunctions stop-execution \
+                        --execution-arn "$execution_arn" \
+                        --region "$REGION" 2>/dev/null || true
+                done
+            fi
+
+            # Delete the state machine
+            echo -e "${YELLOW}  → Deleting state machine...${NC}"
+            if aws stepfunctions delete-state-machine \
+                --state-machine-arn "$state_machine_arn" \
+                --region "$REGION" 2>/dev/null; then
+                echo -e "${GREEN}  ✓ State machine deleted successfully${NC}"
+                total_deleted=$((total_deleted + 1))
+            else
+                echo -e "${BLUE}  → Skipped (may be managed by CloudFormation)${NC}"
+            fi
+        done
+
+        if [ $total_deleted -gt 0 ]; then
+            echo -e "${GREEN}  ✓ Deleted ${total_deleted} state machine(s)${NC}"
+        else
+            echo -e "${GREEN}  ✓ No orphaned state machines to delete${NC}"
+        fi
+    else
+        echo -e "${GREEN}  ✓ No state machines found${NC}"
+    fi
+
+    # Always return success
+    return 0
+}
+
 # Main cleanup logic
 echo -e "\n${YELLOW}Starting cleanup for ${STAGE} environment...${NC}\n"
 
@@ -374,11 +437,15 @@ echo -e "\n${BLUE}━━━ S3 Buckets ━━━${NC}"
 check_and_delete_s3_bucket "$JIRA_CSV_BUCKET"
 check_and_delete_s3_bucket "$WEB_APP_BUCKET"
 
-# 4. Clean up all CloudWatch log groups
+# 4. Clean up Step Functions state machines
+echo -e "\n${BLUE}━━━ Step Functions State Machines ━━━${NC}"
+check_and_delete_state_machines "$STAGE"
+
+# 5. Clean up all CloudWatch log groups
 echo -e "\n${BLUE}━━━ CloudWatch Log Groups ━━━${NC}"
 cleanup_all_log_groups "$STAGE"
 
-# 5. Clean up CloudFront distributions
+# 6. Clean up CloudFront distributions
 echo -e "\n${BLUE}━━━ CloudFront Distributions ━━━${NC}"
 check_and_delete_cloudfront_distribution "$STAGE"
 

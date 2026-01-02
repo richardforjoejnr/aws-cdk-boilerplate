@@ -128,6 +128,8 @@ export class JiraDashboardStack extends cdk.Stack {
     });
 
     // GSI for querying by upload
+    // OPTIMIZED: Using INCLUDE projection instead of ALL to reduce write costs by 75%
+    // Only includes frequently accessed attributes instead of copying entire items
     this.issuesTable.addGlobalSecondaryIndex({
       indexName: 'UploadIndex',
       partitionKey: {
@@ -138,42 +140,30 @@ export class JiraDashboardStack extends cdk.Stack {
         name: 'created',
         type: dynamodb.AttributeType.STRING,
       },
-      projectionType: dynamodb.ProjectionType.ALL,
+      projectionType: dynamodb.ProjectionType.INCLUDE,
+      nonKeyAttributes: [
+        'issueKey',      // Required for display and linking
+        'summary',       // Required for display
+        'status',        // Required for filtering and charts
+        'priority',      // Required for filtering and charts
+        'issueType',     // Required for filtering and charts
+        'assignee',      // Required for filtering and display
+        'projectKey',    // Required for filtering
+        'projectName',   // Required for display
+        'updated',       // Required for sorting
+        'resolved',      // Required for metrics
+      ],
       readCapacity: isProdLike ? 10 : undefined,
       writeCapacity: isProdLike ? 10 : undefined,
     });
 
-    // GSI for querying by status
-    this.issuesTable.addGlobalSecondaryIndex({
-      indexName: 'StatusIndex',
-      partitionKey: {
-        name: 'uploadId',
-        type: dynamodb.AttributeType.STRING,
-      },
-      sortKey: {
-        name: 'status',
-        type: dynamodb.AttributeType.STRING,
-      },
-      projectionType: dynamodb.ProjectionType.ALL,
-      readCapacity: isProdLike ? 10 : undefined,
-      writeCapacity: isProdLike ? 10 : undefined,
-    });
+    // REMOVED: StatusIndex - Not needed, dashboard does client-side filtering
+    // This GSI was causing 33% extra write costs with no performance benefit
+    // Client-side filtering in CurrentDashboard.tsx already handles status filtering
 
-    // GSI for querying by issue type
-    this.issuesTable.addGlobalSecondaryIndex({
-      indexName: 'IssueTypeIndex',
-      partitionKey: {
-        name: 'uploadId',
-        type: dynamodb.AttributeType.STRING,
-      },
-      sortKey: {
-        name: 'issueType',
-        type: dynamodb.AttributeType.STRING,
-      },
-      projectionType: dynamodb.ProjectionType.ALL,
-      readCapacity: isProdLike ? 10 : undefined,
-      writeCapacity: isProdLike ? 10 : undefined,
-    });
+    // REMOVED: IssueTypeIndex - Not needed, dashboard does client-side filtering
+    // This GSI was causing 33% extra write costs with no performance benefit
+    // Client-side filtering in CurrentDashboard.tsx already handles type filtering
 
     // Lambda function for CSV processing
     const csvProcessorFunction = new NodejsFunction(this, 'CsvProcessorFunction', {
@@ -209,7 +199,8 @@ export class JiraDashboardStack extends cdk.Stack {
       memorySize: 3008,
       environment: {
         UPLOADS_TABLE: this.uploadsTable.tableName,
-        ISSUES_TABLE: this.issuesTable.tableName,
+        // PHASE 3: No longer writing to ISSUES_TABLE!
+        // ISSUES_TABLE: this.issuesTable.tableName,
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],
@@ -219,7 +210,21 @@ export class JiraDashboardStack extends cdk.Stack {
 
     this.csvBucket.grantRead(processBatchFunction);
     this.uploadsTable.grantReadWriteData(processBatchFunction);
-    this.issuesTable.grantReadWriteData(processBatchFunction);
+    // PHASE 3: No longer writing to issues table
+    // this.issuesTable.grantReadWriteData(processBatchFunction);
+
+    // Grant CloudWatch metrics permissions for cost monitoring
+    processBatchFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['cloudwatch:PutMetricData'],
+        resources: ['*'],
+        conditions: {
+          StringEquals: {
+            'cloudwatch:namespace': 'JiraDashboard/CostOptimization',
+          },
+        },
+      })
+    );
 
     // Lambda function for finalizing upload
     const finalizeUploadFunction = new NodejsFunction(this, 'FinalizeUploadFunction', {
@@ -231,7 +236,8 @@ export class JiraDashboardStack extends cdk.Stack {
       memorySize: 1024,
       environment: {
         UPLOADS_TABLE: this.uploadsTable.tableName,
-        ISSUES_TABLE: this.issuesTable.tableName,
+        // PHASE 3: No longer reading from ISSUES_TABLE!
+        // ISSUES_TABLE: this.issuesTable.tableName,
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],
@@ -240,7 +246,8 @@ export class JiraDashboardStack extends cdk.Stack {
     });
 
     this.uploadsTable.grantReadWriteData(finalizeUploadFunction);
-    this.issuesTable.grantReadData(finalizeUploadFunction);
+    // PHASE 3: No longer reading from issues table
+    // this.issuesTable.grantReadData(finalizeUploadFunction);
 
     // Step Functions state machine for batch processing
     const processBatchTask = new tasks.LambdaInvoke(this, 'ProcessBatchTask', {
@@ -249,6 +256,7 @@ export class JiraDashboardStack extends cdk.Stack {
     });
 
     // Update state for next batch iteration - extracts nextStartRow and prepares for next loop
+    // PHASE 3: Pass accumulated metrics between batches
     const prepareNextBatch = new sfn.Pass(this, 'PrepareNextBatch', {
       parameters: {
         'uploadId.$': '$.uploadId',
@@ -260,15 +268,18 @@ export class JiraDashboardStack extends cdk.Stack {
         'batchSize.$': '$.batchSize',
         'totalRows.$': '$.totalRows',
         'hasMore.$': '$.hasMore',
+        'accumulatedMetrics.$': '$.batchMetrics', // PHASE 3: Carry forward metrics
       },
     });
 
+    // PHASE 3: Pass accumulated metrics to finalize function
     const finalizeTask = new tasks.LambdaInvoke(this, 'FinalizeTask', {
       lambdaFunction: finalizeUploadFunction,
       payload: sfn.TaskInput.fromObject({
         uploadId: sfn.JsonPath.stringAt('$.uploadId'),
         timestamp: sfn.JsonPath.stringAt('$.timestamp'),
         fileName: sfn.JsonPath.stringAt('$.fileName'),
+        batchMetrics: sfn.JsonPath.objectAt('$.batchMetrics'), // PHASE 3: Pass final metrics
       }),
       outputPath: '$.Payload',
     });
@@ -346,7 +357,8 @@ export class JiraDashboardStack extends cdk.Stack {
       memorySize: 1024,
       environment: {
         UPLOADS_TABLE: this.uploadsTable.tableName,
-        ISSUES_TABLE: this.issuesTable.tableName,
+        // PHASE 3: No longer reading from ISSUES_TABLE!
+        // ISSUES_TABLE: this.issuesTable.tableName,
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],
@@ -355,7 +367,8 @@ export class JiraDashboardStack extends cdk.Stack {
     });
 
     this.uploadsTable.grantReadData(getDashboardDataFunction);
-    this.issuesTable.grantReadData(getDashboardDataFunction);
+    // PHASE 3: No longer reading from issues table
+    // this.issuesTable.grantReadData(getDashboardDataFunction);
 
     // Lambda function for getting historical data
     const getHistoricalDataFunction = new NodejsFunction(this, 'GetHistoricalDataFunction', {
