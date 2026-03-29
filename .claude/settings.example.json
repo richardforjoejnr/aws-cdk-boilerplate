@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read | Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$PWD/.claude/hooks/block-sensitive-files.js"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$PWD/.claude/hooks/typescript-type-check.cjs"
+          }
+        ]
+      }
+    ]
+  }
+}
