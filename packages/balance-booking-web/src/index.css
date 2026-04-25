@@ -1,0 +1,67 @@
+@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500&family=Inter:wght@400;500;600&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --color-cream: #faf7f2;
+  --color-white: #ffffff;
+  --color-stone: #f0ebe4;
+
+  --color-charcoal: #1a1a1a;
+  --color-text: #2c2c2c;
+  --color-text-muted: #6b6b6b;
+  --color-text-dim: #9c9c9c;
+
+  --color-blush: #f4d6d6;
+  --color-blush-deep: #d4928d;
+  --color-sage: #9db39c;
+  --color-lavender: #d6cfe3;
+  --color-butter: #f4e4b5;
+
+  --color-success: #6e9f6e;
+  --color-warning: #d4a574;
+  --color-error: #b85450;
+
+  --font-display: "Cormorant Garamond", Georgia, serif;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+html {
+  font-size: 18px;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--color-cream);
+  color: var(--color-text);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--color-charcoal);
+}
+
+a {
+  color: var(--color-charcoal);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+button {
+  font-family: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

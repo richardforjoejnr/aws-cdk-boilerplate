@@ -1,0 +1,114 @@
+enum ClassLevel {
+  L1
+  L2
+  L3
+  ALL
+}
+
+enum ClassFormat {
+  REFORMER
+  MAT
+  BARRE
+  INFRARED_REFORMER
+  INFRARED_MAT
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  STUB
+  STRIPE
+  PASS
+  MEMBERSHIP
+}
+
+type ClassInstance @aws_cognito_user_pools @aws_iam {
+  classInstanceId: ID!
+  classTypeSlug: String!
+  classTypeName: String!
+  level: ClassLevel!
+  format: ClassFormat!
+  startsAt: AWSDateTime!
+  durationMin: Int!
+  capacity: Int!
+  booked: Int!
+  instructor: String!
+  priceGBP: Float!
+  membersOnly: Boolean
+}
+
+type Booking @aws_cognito_user_pools {
+  bookingId: ID!
+  userId: ID!
+  classInstanceId: ID!
+  classDate: String!
+  classTypeName: String!
+  startsAt: AWSDateTime!
+  status: BookingStatus!
+  paymentMethod: PaymentMethod!
+  createdAt: AWSDateTime!
+}
+
+type MemberProfile @aws_cognito_user_pools {
+  userId: ID!
+  email: String!
+  name: String
+  phone: String
+  parqCompletedAt: AWSDateTime
+  role: String!
+}
+
+type BookBasketResult @aws_cognito_user_pools {
+  bookings: [Booking!]!
+  totalGBP: Float!
+  paymentMethod: PaymentMethod!
+}
+
+input BasketItemInput {
+  classInstanceId: ID!
+}
+
+input ParqInput {
+  hasMedicalConditions: Boolean!
+  medicalDetails: String
+  pregnant: Boolean
+  injuries: String
+  emergencyContactName: String!
+  emergencyContactPhone: String!
+  acknowledgedAt: AWSDateTime!
+}
+
+input CreateClassInput {
+  classTypeSlug: String!
+  classTypeName: String!
+  level: ClassLevel!
+  format: ClassFormat!
+  startsAt: AWSDateTime!
+  durationMin: Int!
+  capacity: Int!
+  instructor: String!
+  priceGBP: Float!
+  membersOnly: Boolean
+}
+
+type Query {
+  listClasses(fromDate: String, toDate: String): [ClassInstance!]! @aws_cognito_user_pools @aws_iam
+  myProfile: MemberProfile! @aws_cognito_user_pools
+  myBookings: [Booking!]! @aws_cognito_user_pools
+  adminListBookings(classInstanceId: ID!): [Booking!]! @aws_cognito_user_pools
+}
+
+type Mutation {
+  submitParq(input: ParqInput!): MemberProfile! @aws_cognito_user_pools
+  bookBasket(items: [BasketItemInput!]!, voucherCode: String): BookBasketResult! @aws_cognito_user_pools
+  cancelBooking(bookingId: ID!): Booking! @aws_cognito_user_pools
+  adminCreateClass(input: CreateClassInput!): ClassInstance! @aws_cognito_user_pools
+}
+
+schema {
+  query: Query
+  mutation: Mutation
+}

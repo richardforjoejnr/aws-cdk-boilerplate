@@ -8,6 +8,11 @@ import { AppSyncStack } from '../lib/appsync-stack.js';
 import { StepFunctionsStack } from '../lib/step-functions-stack.js';
 import { WebAppStack } from '../lib/web-app-stack.js';
 import { JiraDashboardStack } from '../lib/jira-dashboard-stack.js';
+import { BalanceBookingAuthStack } from '../lib/balance-booking/auth-stack.js';
+import { BalanceBookingDataStack } from '../lib/balance-booking/data-stack.js';
+import { BalanceBookingFunctionsStack } from '../lib/balance-booking/functions-stack.js';
+import { BalanceBookingApiStack } from '../lib/balance-booking/api-stack.js';
+import { BalanceBookingWebStack } from '../lib/balance-booking/web-stack.js';
 
 const app = new cdk.App();
 
@@ -82,6 +87,52 @@ if (deployWebApp) {
     env,
     description: `Web application hosting for ${stage} environment`,
     stackName: `${stackPrefix}-web-app`,
+  });
+}
+
+// Balance Booking System (POC) - Pilates studio booking app
+const balancePrefix = `${stage}-balance-booking`;
+
+const balanceAuthStack = new BalanceBookingAuthStack(app, `${balancePrefix}-auth`, {
+  env,
+  description: `Cognito user pool for Balance Booking ${stage}`,
+  stackName: `${balancePrefix}-auth`,
+});
+
+const balanceDataStack = new BalanceBookingDataStack(app, `${balancePrefix}-data`, {
+  env,
+  description: `DynamoDB table for Balance Booking ${stage}`,
+  stackName: `${balancePrefix}-data`,
+});
+
+const balanceFunctionsStack = new BalanceBookingFunctionsStack(
+  app,
+  `${balancePrefix}-functions`,
+  {
+    env,
+    description: `Lambda functions for Balance Booking ${stage}`,
+    stackName: `${balancePrefix}-functions`,
+    bookingTable: balanceDataStack.bookingTable,
+  }
+);
+
+new BalanceBookingApiStack(app, `${balancePrefix}-api`, {
+  env,
+  description: `AppSync GraphQL API for Balance Booking ${stage}`,
+  stackName: `${balancePrefix}-api`,
+  userPool: balanceAuthStack.userPool,
+  functions: balanceFunctionsStack.functions,
+});
+
+const deployBalanceWeb =
+  process.env.DEPLOY_BALANCE_WEB === 'true' ||
+  process.argv.includes('balance-booking-web') ||
+  isDestroy;
+if (deployBalanceWeb) {
+  new BalanceBookingWebStack(app, `${balancePrefix}-web`, {
+    env,
+    description: `S3 + CloudFront hosting for Balance Booking ${stage}`,
+    stackName: `${balancePrefix}-web`,
   });
 }
 

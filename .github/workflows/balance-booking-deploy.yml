@@ -1,0 +1,74 @@
+name: Balance Booking — Manual Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: 'Environment to deploy to'
+        required: true
+        type: choice
+        options: [dev, test, prod]
+        default: dev
+      seed:
+        description: 'Seed sample classes after deploy'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  NODE_VERSION: '20'
+  AWS_REGION: 'us-east-1'
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.stage }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.stage }}
+      url: ${{ steps.deploy.outputs.web_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh
+
+      - name: Deploy
+        id: deploy
+        env:
+          STAGE: ${{ inputs.stage }}
+        run: |
+          if [ "${{ inputs.seed }}" = "true" ]; then
+            ./scripts/deploy-balance-booking.sh "$STAGE" --seed
+          else
+            ./scripts/deploy-balance-booking.sh "$STAGE"
+          fi
+          if [ -f ".balance-booking-outputs-${STAGE}.json" ]; then
+            WEB_URL=$(jq -r '.webUrl' ".balance-booking-outputs-${STAGE}.json")
+            echo "web_url=${WEB_URL}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Summary
+        run: |
+          echo "## ✅ Balance Booking deployed to ${{ inputs.stage }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**App:** ${{ steps.deploy.outputs.web_url }}" >> $GITHUB_STEP_SUMMARY
