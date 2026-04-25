@@ -63,6 +63,8 @@ export class BalanceBookingApiStack extends cdk.Stack {
     wire('Mutation', 'bookBasket', props.functions.bookBasket);
     wire('Mutation', 'cancelBooking', props.functions.cancelBooking);
     wire('Mutation', 'adminCreateClass', props.functions.adminCreateClass);
+    wire('Mutation', 'adminUpdateClass', props.functions.adminUpdateClass);
+    wire('Mutation', 'adminDeleteClass', props.functions.adminDeleteClass);
 
     new cdk.CfnOutput(this, 'GraphqlUrl', {
       value: this.api.graphqlUrl,

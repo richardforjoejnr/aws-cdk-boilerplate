@@ -471,7 +471,7 @@ aws lambda list-functions --query 'Functions[?starts_with(FunctionName, `dev-`)]
 Authentication is configured using IAM access keys for both local development and GitHub Actions CI/CD.
 
 **Current Setup:**
-- **AWS Account:** 842822459513
+- **AWS Account:** `<your-account-id>` (set via `aws configure` / `AWS_ACCOUNT_ID` env var; do not commit real account IDs)
 - **IAM User:** cdk-deployer
 - **Region:** us-east-1
 

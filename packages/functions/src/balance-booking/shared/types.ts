@@ -1,4 +1,4 @@
-export type ClassLevel = 1 | 2 | 3 | 'ALL';
+export type ClassLevel = 'L1' | 'L2' | 'L3' | 'ALL';
 
 export type ClassFormat = 'REFORMER' | 'MAT' | 'BARRE' | 'INFRARED_REFORMER' | 'INFRARED_MAT';
 
@@ -19,6 +19,7 @@ export interface ClassInstance {
 
 export interface BasketItem {
   classInstanceId: string;
+  classDate: string;
 }
 
 export interface Booking {

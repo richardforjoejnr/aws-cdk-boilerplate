@@ -22,7 +22,10 @@ export function BasketPage() {
   const book = useMutation({
     mutationFn: async () => {
       return gqlClient().request(BOOK_BASKET, {
-        items: items.map((i) => ({ classInstanceId: i.classInstanceId })),
+        items: items.map((i) => ({
+          classInstanceId: i.classInstanceId,
+          classDate: i.startsAt.slice(0, 10),
+        })),
       });
     },
     onSuccess: () => {

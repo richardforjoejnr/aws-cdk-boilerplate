@@ -7,7 +7,7 @@ const CATALOGUE: Array<Omit<ClassInstance, 'classInstanceId' | 'startsAt' | 'boo
   {
     classTypeSlug: 'reformer-flow-it',
     classTypeName: 'Reformer — Flow It',
-    level: 1,
+    level: 'L1',
     format: 'REFORMER',
     durationMin: 45,
     capacity: 8,
@@ -17,7 +17,7 @@ const CATALOGUE: Array<Omit<ClassInstance, 'classInstanceId' | 'startsAt' | 'boo
   {
     classTypeSlug: 'reformer-pace-it',
     classTypeName: 'Reformer — Pace It',
-    level: 2,
+    level: 'L2',
     format: 'REFORMER',
     durationMin: 45,
     capacity: 8,
@@ -27,7 +27,7 @@ const CATALOGUE: Array<Omit<ClassInstance, 'classInstanceId' | 'startsAt' | 'boo
   {
     classTypeSlug: 'reformer-werk-it',
     classTypeName: 'Reformer — Werk It',
-    level: 3,
+    level: 'L3',
     format: 'REFORMER',
     durationMin: 45,
     capacity: 8,
@@ -37,7 +37,7 @@ const CATALOGUE: Array<Omit<ClassInstance, 'classInstanceId' | 'startsAt' | 'boo
   {
     classTypeSlug: 'simmer-it',
     classTypeName: 'Infrared Mat — Simmer It',
-    level: 1,
+    level: 'L1',
     format: 'INFRARED_MAT',
     durationMin: 45,
     capacity: 12,

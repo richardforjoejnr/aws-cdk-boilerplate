@@ -44,13 +44,17 @@ export const handler = async (event: AppSyncEvent<Args>): Promise<BookBasketResu
   let totalGBP = 0;
   const transactItems: NonNullable<TransactWriteCommandInput['TransactItems']> = [];
 
-  for (const { classInstanceId } of items) {
-    const classDate = await findClassDate(classInstanceId);
+  for (const { classInstanceId, classDate } of items) {
+    // classDate comes from the client (it's already in ClassInstance.startsAt). The class row
+    // is the source of truth for capacity & price — we re-read it inside the transaction.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(classDate)) {
+      throw new Error(`Invalid classDate "${classDate}" for ${classInstanceId}`);
+    }
     const classKey = classInstanceKey(classDate, classInstanceId);
 
     const classRow = await ddb.send(new GetCommand({ TableName: TABLE_NAME, Key: classKey }));
     if (!classRow.Item) {
-      throw new Error(`Class ${classInstanceId} not found`);
+      throw new Error(`Class ${classInstanceId} not found on ${classDate}`);
     }
     const capacity = classRow.Item.capacity as number;
     const booked = (classRow.Item.booked as number) ?? 0;
@@ -101,17 +105,3 @@ export const handler = async (event: AppSyncEvent<Args>): Promise<BookBasketResu
 
   return { bookings, totalGBP, paymentMethod: 'STUB' };
 };
-
-async function findClassDate(classInstanceId: string): Promise<string> {
-  const today = new Date();
-  for (let i = 0; i < 60; i++) {
-    const d = new Date(today);
-    d.setDate(today.getDate() + i);
-    const date = d.toISOString().slice(0, 10);
-    const res = await ddb.send(
-      new GetCommand({ TableName: TABLE_NAME, Key: classInstanceKey(date, classInstanceId) })
-    );
-    if (res.Item) return date;
-  }
-  throw new Error(`Class instance ${classInstanceId} not found in next 60 days`);
-}

@@ -66,8 +66,10 @@ VITE_REDIRECT_SIGN_IN=${REDIRECT_SIGN_IN}
 VITE_REDIRECT_SIGN_OUT=${REDIRECT_SIGN_OUT}
 ENVEOF
 
-# Vite picks up .env.production for `vite build` (production mode), so always copy too.
-cp "$ENV_FILE" "${ENV_DIR}/.env.production"
+# Note: we deliberately do NOT copy this to .env.production. Each stage gets its own .env.{stage}
+# file, and the build is invoked with `vite build --mode {stage}` so Vite loads the right one.
+# Copying to .env.production would mean a later `dev` configure run leaves prod-named credentials
+# pointing at a dev backend.
 
 echo -e "${GREEN}✓ Wrote ${ENV_FILE}${NC}"
 echo -e "${YELLOW}GraphQL:${NC} ${GRAPHQL_URL}"

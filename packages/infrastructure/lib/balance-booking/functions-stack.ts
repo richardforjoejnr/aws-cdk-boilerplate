@@ -22,6 +22,8 @@ export interface BookingFunctions {
   bookBasket: lambda.Function;
   cancelBooking: lambda.Function;
   adminCreateClass: lambda.Function;
+  adminUpdateClass: lambda.Function;
+  adminDeleteClass: lambda.Function;
   adminListBookings: lambda.Function;
   seedClasses: lambda.Function;
 }
@@ -80,6 +82,8 @@ export class BalanceBookingFunctionsStack extends cdk.Stack {
       bookBasket: make('book-basket', 'book-basket'),
       cancelBooking: make('cancel-booking', 'cancel-booking'),
       adminCreateClass: make('admin-create-class', 'admin-create-class'),
+      adminUpdateClass: make('admin-update-class', 'admin-update-class'),
+      adminDeleteClass: make('admin-delete-class', 'admin-delete-class'),
       adminListBookings: make('admin-list-bookings', 'admin-list-bookings'),
       seedClasses: make('seed-classes', 'seed-classes'),
     };

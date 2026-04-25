@@ -87,3 +87,42 @@ export const ADMIN_CREATE_CLASS = /* GraphQL */ `
     }
   }
 `;
+
+export const ADMIN_UPDATE_CLASS = /* GraphQL */ `
+  mutation AdminUpdateClass($input: UpdateClassInput!) {
+    adminUpdateClass(input: $input) {
+      classInstanceId
+      classTypeName
+      startsAt
+      durationMin
+      capacity
+      booked
+      instructor
+      priceGBP
+      membersOnly
+    }
+  }
+`;
+
+export const ADMIN_DELETE_CLASS = /* GraphQL */ `
+  mutation AdminDeleteClass($classInstanceId: ID!, $classDate: String!) {
+    adminDeleteClass(classInstanceId: $classInstanceId, classDate: $classDate) {
+      classInstanceId
+      cancelledBookings
+    }
+  }
+`;
+
+export const ADMIN_LIST_BOOKINGS = /* GraphQL */ `
+  query AdminListBookings($classInstanceId: ID!) {
+    adminListBookings(classInstanceId: $classInstanceId) {
+      bookingId
+      userId
+      classTypeName
+      startsAt
+      status
+      paymentMethod
+      createdAt
+    }
+  }
+`;
