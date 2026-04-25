@@ -8,6 +8,7 @@
     "packages/*"
   ],
   "scripts": {
+    "setup": "npm install && node scripts/init-claude.cjs",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "lint": "eslint . --ext .ts",

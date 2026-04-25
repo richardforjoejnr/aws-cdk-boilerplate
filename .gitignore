@@ -18,6 +18,9 @@ build/
 *.tsbuildinfo
 !jest.config.js
 !vite-env.d.ts
+!.claude/hooks/*.js
+!scripts/*.js
+!scripts/*.cjs
 
 # IDEs
 .idea/
@@ -56,3 +59,7 @@ coverage/
 # AWS
 .aws-sam/
 samconfig.toml
+
+# Claude Code
+.claude/settings.local.json
+.claude/settings.json
