@@ -10,11 +10,16 @@ set -e
 STAGE=${1:-dev}
 REGION=${AWS_REGION:-us-east-1}
 SEED=""
+ADMIN_EMAIL="admin@example.com"
+ADMIN_PASSWORD="password123"
 shift || true
-for arg in "$@"; do
-  case $arg in
+while [ $# -gt 0 ]; do
+  case $1 in
     --seed) SEED="yes" ;;
+    --admin-email) ADMIN_EMAIL="$2"; shift ;;
+    --admin-password) ADMIN_PASSWORD="$2"; shift ;;
   esac
+  shift
 done
 
 GREEN='\033[0;32m'
@@ -94,6 +99,15 @@ if [ "$SEED" = "yes" ]; then
     --region "$REGION" \
     /tmp/seed-output.json >/dev/null
   echo -e "${GREEN}✓ Seeded:${NC} $(cat /tmp/seed-output.json)"
+fi
+
+if [ -n "$ADMIN_EMAIL" ]; then
+  echo -e "${BLUE}👤 Bootstrapping admin user${NC}"
+  if [ -n "$ADMIN_PASSWORD" ]; then
+    "${SCRIPT_DIR}/create-admin.sh" "$STAGE" "$ADMIN_EMAIL" "$ADMIN_PASSWORD"
+  else
+    "${SCRIPT_DIR}/create-admin.sh" "$STAGE" "$ADMIN_EMAIL"
+  fi
 fi
 
 WEB_URL=$(aws cloudformation describe-stacks \
