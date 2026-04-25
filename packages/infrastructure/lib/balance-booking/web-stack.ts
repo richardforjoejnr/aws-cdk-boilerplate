@@ -3,7 +3,6 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
-import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -12,15 +11,19 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+export interface BalanceBookingWebStackProps extends cdk.StackProps {
+  stage: string;
+  isProdLike: boolean;
+}
+
 export class BalanceBookingWebStack extends cdk.Stack {
   public readonly bucket: s3.Bucket;
   public readonly distribution: cloudfront.Distribution;
 
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props: BalanceBookingWebStackProps) {
     super(scope, id, props);
 
-    const stage = this.node.tryGetContext('stage') as string;
-    const isProdLike = this.node.tryGetContext('isProdLike') as boolean;
+    const { stage, isProdLike } = props;
 
     this.bucket = new s3.Bucket(this, 'WebBucket', {
       bucketName: `${stage}-balance-booking-web`,
@@ -30,25 +33,12 @@ export class BalanceBookingWebStack extends cdk.Stack {
       encryption: s3.BucketEncryption.S3_MANAGED,
     });
 
-    const oai = new cloudfront.OriginAccessIdentity(this, 'WebOAI', {
-      comment: `OAI for ${stage} balance-booking web`,
-    });
-    this.bucket.grantRead(oai);
-    this.bucket.addToResourcePolicy(
-      new iam.PolicyStatement({
-        actions: ['s3:GetObject'],
-        resources: [this.bucket.arnForObjects('*')],
-        principals: [
-          new iam.CanonicalUserPrincipal(oai.cloudFrontOriginAccessIdentityS3CanonicalUserId),
-        ],
-      })
-    );
-
+    // Origin Access Control (OAC) — replaces the deprecated Origin Access Identity (OAI).
+    // withOriginAccessControl() creates the OAC, attaches it to the origin, and writes the
+    // bucket policy that grants the distribution scoped read access via the OAC.
     this.distribution = new cloudfront.Distribution(this, 'WebDistribution', {
       defaultBehavior: {
-        origin: origins.S3BucketOrigin.withOriginAccessIdentity(this.bucket, {
-          originAccessIdentity: oai,
-        }),
+        origin: origins.S3BucketOrigin.withOriginAccessControl(this.bucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
         compress: true,

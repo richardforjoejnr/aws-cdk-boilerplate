@@ -2,17 +2,21 @@ import * as cdk from 'aws-cdk-lib';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import { Construct } from 'constructs';
 
+export interface BalanceBookingAuthStackProps extends cdk.StackProps {
+  stage: string;
+  isProdLike: boolean;
+}
+
 export class BalanceBookingAuthStack extends cdk.Stack {
   public readonly userPool: cognito.UserPool;
   public readonly userPoolClient: cognito.UserPoolClient;
   public readonly userPoolDomain: cognito.UserPoolDomain;
   public readonly adminGroup: cognito.CfnUserPoolGroup;
 
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props: BalanceBookingAuthStackProps) {
     super(scope, id, props);
 
-    const stage = this.node.tryGetContext('stage') as string;
-    const isProdLike = this.node.tryGetContext('isProdLike') as boolean;
+    const { stage, isProdLike } = props;
     const removalPolicy = isProdLike ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY;
 
     this.userPool = new cognito.UserPool(this, 'UserPool', {

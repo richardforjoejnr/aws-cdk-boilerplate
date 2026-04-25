@@ -10,6 +10,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export interface BalanceBookingApiStackProps extends cdk.StackProps {
+  stage: string;
+  isProdLike: boolean;
   userPool: cognito.UserPool;
   functions: BookingFunctions;
 }
@@ -20,8 +22,7 @@ export class BalanceBookingApiStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: BalanceBookingApiStackProps) {
     super(scope, id, props);
 
-    const stage = this.node.tryGetContext('stage') as string;
-    const isProdLike = this.node.tryGetContext('isProdLike') as boolean;
+    const { stage, isProdLike } = props;
 
     this.api = new appsync.GraphqlApi(this, 'Api', {
       name: `${stage}-balance-booking-api`,

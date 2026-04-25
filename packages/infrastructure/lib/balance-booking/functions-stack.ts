@@ -11,6 +11,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export interface BalanceBookingFunctionsStackProps extends cdk.StackProps {
+  stage: string;
+  isProdLike: boolean;
   bookingTable: dynamodb.Table;
 }
 
@@ -34,8 +36,7 @@ export class BalanceBookingFunctionsStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: BalanceBookingFunctionsStackProps) {
     super(scope, id, props);
 
-    const stage = this.node.tryGetContext('stage') as string;
-    const isProdLike = this.node.tryGetContext('isProdLike') as boolean;
+    const { stage, isProdLike } = props;
     const removalPolicy = isProdLike ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY;
     const logRetention = isProdLike ? logs.RetentionDays.ONE_MONTH : logs.RetentionDays.ONE_WEEK;
 

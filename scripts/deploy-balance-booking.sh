@@ -116,7 +116,10 @@ USER_POOL_CLIENT_ID=$(aws cloudformation describe-stacks \
 
 if [ -n "$WEB_URL_FOR_CALLBACKS" ] && [ -n "$USER_POOL_ID" ] && [ -n "$USER_POOL_CLIENT_ID" ]; then
   echo -e "${BLUE}🔁 Registering ${WEB_URL_FOR_CALLBACKS} as Cognito OAuth callback${NC}"
-  aws cognito-idp update-user-pool-client \
+  # Non-fatal: a transient API error shouldn't sink the whole deploy. The OAuth
+  # redirects are only used if/when we ever route through the Hosted UI; the custom
+  # forms work without this update. Re-running the deploy will retry it.
+  if aws cognito-idp update-user-pool-client \
     --user-pool-id "$USER_POOL_ID" \
     --client-id "$USER_POOL_CLIENT_ID" \
     --region "$REGION" \
@@ -133,8 +136,11 @@ if [ -n "$WEB_URL_FOR_CALLBACKS" ] && [ -n "$USER_POOL_ID" ] && [ -n "$USER_POOL
     --logout-urls \
       "${WEB_URL_FOR_CALLBACKS}/" \
       "http://localhost:3001/" \
-    --prevent-user-existence-errors ENABLED >/dev/null
-  echo -e "${GREEN}✓ Cognito callbacks updated${NC}\n"
+    --prevent-user-existence-errors ENABLED >/dev/null; then
+    echo -e "${GREEN}✓ Cognito callbacks updated${NC}\n"
+  else
+    echo -e "${YELLOW}⚠️  Failed to update Cognito callbacks (non-fatal — re-run deploy to retry)${NC}\n"
+  fi
 fi
 
 if [ "$SEED" = "yes" ]; then

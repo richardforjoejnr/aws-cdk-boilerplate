@@ -21,11 +21,15 @@ PREFIX="${STAGE}-balance-booking"
 read_output() {
   local stack=$1
   local key=$2
+  # `|| true` is load-bearing: aws cli returns 254 when the stack doesn't exist
+  # (expected for the web stack on first pass), and some bash configurations
+  # propagate that through `var=$(read_output ...)` and trip set -e. Empty-string
+  # output is the contract — every caller already null-checks.
   aws cloudformation describe-stacks \
     --stack-name "$stack" \
     --region "$REGION" \
     --query "Stacks[0].Outputs[?OutputKey=='${key}'].OutputValue" \
-    --output text 2>/dev/null
+    --output text 2>/dev/null || true
 }
 
 USER_POOL_ID=$(read_output "${PREFIX}-auth" "UserPoolId")

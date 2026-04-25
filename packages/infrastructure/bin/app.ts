@@ -92,17 +92,20 @@ if (deployWebApp) {
 
 // Balance Booking System (POC) - Pilates studio booking app
 const balancePrefix = `${stage}-balance-booking`;
+const balanceCommonProps = { stage, isProdLike } as const;
 
 const balanceAuthStack = new BalanceBookingAuthStack(app, `${balancePrefix}-auth`, {
   env,
   description: `Cognito user pool for Balance Booking ${stage}`,
   stackName: `${balancePrefix}-auth`,
+  ...balanceCommonProps,
 });
 
 const balanceDataStack = new BalanceBookingDataStack(app, `${balancePrefix}-data`, {
   env,
   description: `DynamoDB table for Balance Booking ${stage}`,
   stackName: `${balancePrefix}-data`,
+  ...balanceCommonProps,
 });
 
 const balanceFunctionsStack = new BalanceBookingFunctionsStack(
@@ -112,6 +115,7 @@ const balanceFunctionsStack = new BalanceBookingFunctionsStack(
     env,
     description: `Lambda functions for Balance Booking ${stage}`,
     stackName: `${balancePrefix}-functions`,
+    ...balanceCommonProps,
     bookingTable: balanceDataStack.bookingTable,
   }
 );
@@ -120,6 +124,7 @@ new BalanceBookingApiStack(app, `${balancePrefix}-api`, {
   env,
   description: `AppSync GraphQL API for Balance Booking ${stage}`,
   stackName: `${balancePrefix}-api`,
+  ...balanceCommonProps,
   userPool: balanceAuthStack.userPool,
   functions: balanceFunctionsStack.functions,
 });
@@ -133,6 +138,7 @@ if (deployBalanceWeb) {
     env,
     description: `S3 + CloudFront hosting for Balance Booking ${stage}`,
     stackName: `${balancePrefix}-web`,
+    ...balanceCommonProps,
   });
 }
 

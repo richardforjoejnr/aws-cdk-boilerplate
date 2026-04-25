@@ -2,14 +2,18 @@ import * as cdk from 'aws-cdk-lib';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import { Construct } from 'constructs';
 
+export interface BalanceBookingDataStackProps extends cdk.StackProps {
+  stage: string;
+  isProdLike: boolean;
+}
+
 export class BalanceBookingDataStack extends cdk.Stack {
   public readonly bookingTable: dynamodb.Table;
 
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props: BalanceBookingDataStackProps) {
     super(scope, id, props);
 
-    const stage = this.node.tryGetContext('stage') as string;
-    const isProdLike = this.node.tryGetContext('isProdLike') as boolean;
+    const { stage, isProdLike } = props;
     const removalPolicy = isProdLike ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY;
 
     this.bookingTable = new dynamodb.Table(this, 'BookingTable', {
