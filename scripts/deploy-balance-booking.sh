@@ -189,6 +189,63 @@ cat > "$OUT_FILE" <<JSONEOF
 }
 JSONEOF
 
+# ────────────────────────────────────────────────────────────────────────────────
+# Health check — fail loudly if the deployed stack isn't actually serving traffic.
+# Catches the "interrupted destroy left CloudFront disabled" failure mode where
+# the stack reports UPDATE_COMPLETE but the URL doesn't resolve.
+# ────────────────────────────────────────────────────────────────────────────────
+echo -e "${BLUE}🏥 Health check${NC}"
+
+DIST_ID=$(aws cloudformation describe-stacks \
+  --stack-name "${PREFIX}-web" \
+  --region "$REGION" \
+  --query "Stacks[0].Outputs[?OutputKey=='DistributionId'].OutputValue" \
+  --output text 2>/dev/null || echo "")
+
+if [ -z "$WEB_URL" ] || [ -z "$DIST_ID" ]; then
+  echo -e "${YELLOW}⚠️  Skipping health check — web stack not deployed${NC}"
+else
+  # 1. CloudFront distribution must be enabled. Catches the disabled-distribution drift.
+  DIST_INFO=$(aws cloudfront get-distribution \
+    --id "$DIST_ID" \
+    --query '[Distribution.DistributionConfig.Enabled,Distribution.Status]' \
+    --output text 2>/dev/null || echo "False NotFound")
+  DIST_ENABLED=$(echo "$DIST_INFO" | awk '{print $1}')
+  DIST_STATE=$(echo "$DIST_INFO" | awk '{print $2}')
+
+  if [ "$DIST_ENABLED" != "True" ]; then
+    echo -e "${RED}❌ CloudFront distribution ${DIST_ID} is disabled (Enabled=${DIST_ENABLED})${NC}"
+    echo -e "${RED}   Likely cause: an interrupted destroy left it half-torn-down.${NC}"
+    echo -e "${RED}   Fix: re-enable via 'aws cloudfront update-distribution', or re-run this script.${NC}"
+    exit 1
+  fi
+  echo -e "${GREEN}✓ Distribution enabled (CloudFront status: ${DIST_STATE})${NC}"
+
+  # 2. HTTP probe with retry — propagation can take a few minutes on first deploy or after
+  # a config change (CloudFront takes ~5–15 min globally). 20 × 15s = 5 min max wait.
+  MAX_ATTEMPTS=20
+  ATTEMPT=0
+  HTTP_CODE=0
+  while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+    ATTEMPT=$((ATTEMPT + 1))
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -m 10 "$WEB_URL" || echo "000")
+    if [ "$HTTP_CODE" = "200" ]; then
+      echo -e "${GREEN}✓ ${WEB_URL} returned 200 (attempt ${ATTEMPT}/${MAX_ATTEMPTS})${NC}"
+      break
+    fi
+    if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+      echo -e "${YELLOW}⏳ HTTP ${HTTP_CODE} (attempt ${ATTEMPT}/${MAX_ATTEMPTS}) — retrying in 15s${NC}"
+      sleep 15
+    fi
+  done
+
+  if [ "$HTTP_CODE" != "200" ]; then
+    echo -e "${RED}❌ Health check failed: ${WEB_URL} returned HTTP ${HTTP_CODE} after ${MAX_ATTEMPTS} attempts${NC}"
+    echo -e "${RED}   Distribution is enabled but not serving — check S3 bucket contents and OAC policy.${NC}"
+    exit 1
+  fi
+fi
+
 echo -e "${GREEN}✅ Deploy complete${NC}"
 echo -e "${YELLOW}Web:${NC}     ${WEB_URL}"
 echo -e "${YELLOW}GraphQL:${NC} ${GRAPHQL_URL}"
