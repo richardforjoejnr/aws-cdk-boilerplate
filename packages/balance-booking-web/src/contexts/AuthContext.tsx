@@ -8,6 +8,8 @@ import {
   signIn as amplifySignIn,
   signUp as amplifySignUp,
   signOut as amplifySignOut,
+  confirmSignUp as amplifyConfirmSignUp,
+  resendSignUpCode as amplifyResendSignUpCode,
   fetchAuthSession,
   getCurrentUser,
 } from 'aws-amplify/auth';
@@ -40,11 +42,18 @@ interface AuthUser {
   groups: string[];
 }
 
+interface SignUpResult {
+  /** True if Cognito created the user already-confirmed (e.g. admin-created users); false if a code was emailed. */
+  confirmed: boolean;
+}
+
 interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string) => Promise<SignUpResult>;
+  confirmSignUp: (email: string, code: string) => Promise<void>;
+  resendSignUpCode: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -97,11 +106,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await refresh();
     },
     signUp: async (email, password) => {
-      await amplifySignUp({
+      const res = await amplifySignUp({
         username: email,
         password,
         options: { userAttributes: { email } },
       });
+      return { confirmed: res.isSignUpComplete };
+    },
+    confirmSignUp: async (email, code) => {
+      await amplifyConfirmSignUp({ username: email, confirmationCode: code });
+    },
+    resendSignUpCode: async (email) => {
+      await amplifyResendSignUpCode({ username: email });
     },
     signOut: async () => {
       await amplifySignOut();
