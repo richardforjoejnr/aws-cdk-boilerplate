@@ -15,6 +15,16 @@ on:
         description: 'Type "DESTROY" to confirm'
         required: true
         type: string
+      destroy_boilerplate:
+        description: 'Destroy boilerplate stacks (database/lambda/appsync/step-functions/jira/web-app)'
+        required: false
+        type: boolean
+        default: true
+      destroy_balance_booking:
+        description: 'Destroy Balance Booking stacks (auth/data/functions/api/web)'
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   id-token: write
@@ -37,6 +47,13 @@ jobs:
           fi
           echo "✅ Confirmation validated"
 
+      - name: Validate target selection
+        run: |
+          if [ "${{ inputs.destroy_boilerplate }}" != "true" ] && [ "${{ inputs.destroy_balance_booking }}" != "true" ]; then
+            echo "::error::Nothing selected to destroy — tick at least one of: destroy_boilerplate, destroy_balance_booking"
+            exit 1
+          fi
+
       - name: Warn about production
         if: github.event.inputs.stage == 'prod'
         run: |
@@ -44,10 +61,58 @@ jobs:
           echo "This action is irreversible and will delete all production data."
           sleep 10
 
-  destroy:
-    name: Destroy ${{ github.event.inputs.stage }} Environment
+  destroy-balance-booking:
+    name: Destroy Balance Booking in ${{ github.event.inputs.stage }}
     runs-on: ubuntu-latest
     needs: validate
+    if: inputs.destroy_balance_booking == true
+    environment:
+      name: ${{ github.event.inputs.stage }}-destroy
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh
+
+      - name: Destroy Balance Booking stacks
+        env:
+          STAGE: ${{ github.event.inputs.stage }}
+        run: ./scripts/destroy-balance-booking.sh "$STAGE"
+
+      - name: Balance Booking destroy summary
+        run: |
+          echo "## 🗑️ Balance Booking destroyed in ${{ github.event.inputs.stage }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Stacks removed (reverse-dependency order):" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ github.event.inputs.stage }}-balance-booking-web\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ github.event.inputs.stage }}-balance-booking-api\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ github.event.inputs.stage }}-balance-booking-functions\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ github.event.inputs.stage }}-balance-booking-data\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ github.event.inputs.stage }}-balance-booking-auth\`" >> $GITHUB_STEP_SUMMARY
+
+  destroy:
+    name: Destroy boilerplate in ${{ github.event.inputs.stage }}
+    runs-on: ubuntu-latest
+    # Wait for balance-booking destroy if it ran (so cdk destroy --all isn't racing the dedicated
+    # script). `always()` lets this run even if the BB destroy job was skipped.
+    needs: [validate, destroy-balance-booking]
+    if: always() && needs.validate.result == 'success' && inputs.destroy_boilerplate == true
     environment:
       name: ${{ github.event.inputs.stage }}-destroy
     steps:
