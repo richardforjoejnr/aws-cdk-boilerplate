@@ -1,12 +1,16 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { Amplify } from '@aws-amplify/core';
+// Amplify v6: import from the umbrella `aws-amplify` package and `aws-amplify/auth`
+// subpath. Using `@aws-amplify/core` + `@aws-amplify/auth` directly can result in two
+// different singleton instances under some bundler configurations — `Amplify.configure()`
+// writes to one and `signIn` reads from the other, producing "Auth UserPool not configured".
+import { Amplify } from 'aws-amplify';
 import {
   signIn as amplifySignIn,
   signUp as amplifySignUp,
   signOut as amplifySignOut,
   fetchAuthSession,
   getCurrentUser,
-} from '@aws-amplify/auth';
+} from 'aws-amplify/auth';
 import { config } from '../lib/config';
 import { setAuthToken } from '../lib/api';
 

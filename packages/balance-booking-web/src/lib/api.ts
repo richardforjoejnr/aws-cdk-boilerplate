@@ -7,9 +7,16 @@ export function setAuthToken(t: string | null) {
 }
 
 export function gqlClient(): GraphQLClient {
-  return new GraphQLClient(config.graphqlUrl, {
-    headers: token ? { Authorization: token } : {},
-  });
+  // Send the Cognito ID token if signed in; otherwise fall back to the public API key
+  // so unauthenticated visitors can still load the schedule (only fields tagged
+  // @aws_api_key in the schema are accessible this way).
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers.Authorization = token;
+  } else if (config.graphqlApiKey) {
+    headers['x-api-key'] = config.graphqlApiKey;
+  }
+  return new GraphQLClient(config.graphqlUrl, { headers });
 }
 
 export interface ClassInstance {

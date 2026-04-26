@@ -25,7 +25,7 @@ enum PaymentMethod {
   MEMBERSHIP
 }
 
-type ClassInstance @aws_cognito_user_pools @aws_iam {
+type ClassInstance @aws_cognito_user_pools @aws_iam @aws_api_key {
   classInstanceId: ID!
   classTypeSlug: String!
   classTypeName: String!
@@ -113,7 +113,10 @@ type DeleteClassResult @aws_cognito_user_pools {
 }
 
 type Query {
-  listClasses(fromDate: String, toDate: String): [ClassInstance!]! @aws_cognito_user_pools @aws_iam
+  listClasses(fromDate: String, toDate: String): [ClassInstance!]!
+    @aws_cognito_user_pools
+    @aws_iam
+    @aws_api_key
   myProfile: MemberProfile! @aws_cognito_user_pools
   myBookings: [Booking!]! @aws_cognito_user_pools
   adminListBookings(classInstanceId: ID!): [Booking!]! @aws_cognito_user_pools

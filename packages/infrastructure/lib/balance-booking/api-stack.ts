@@ -28,11 +28,23 @@ export class BalanceBookingApiStack extends cdk.Stack {
       name: `${stage}-balance-booking-api`,
       definition: appsync.Definition.fromFile(path.join(__dirname, 'schema.graphql')),
       authorizationConfig: {
+        // Default = Cognito user pool: anything tagged @aws_cognito_user_pools requires a signed-in user.
         defaultAuthorization: {
           authorizationType: appsync.AuthorizationType.USER_POOL,
           userPoolConfig: { userPool: props.userPool },
         },
-        additionalAuthorizationModes: [{ authorizationType: appsync.AuthorizationType.IAM }],
+        additionalAuthorizationModes: [
+          // API_KEY: lets the public schedule load before sign-in. Only fields tagged
+          // @aws_api_key in schema.graphql are accessible this way.
+          {
+            authorizationType: appsync.AuthorizationType.API_KEY,
+            apiKeyConfig: {
+              expires: cdk.Expiration.after(cdk.Duration.days(365)),
+              description: 'Public read access (schedule browse before sign-in)',
+            },
+          },
+          { authorizationType: appsync.AuthorizationType.IAM },
+        ],
       },
       xrayEnabled: isProdLike,
       logConfig: {
@@ -70,6 +82,10 @@ export class BalanceBookingApiStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'GraphqlUrl', {
       value: this.api.graphqlUrl,
       exportName: `${stage}-balance-booking-graphql-url`,
+    });
+    new cdk.CfnOutput(this, 'GraphqlApiKey', {
+      value: this.api.apiKey ?? 'N/A',
+      exportName: `${stage}-balance-booking-graphql-api-key`,
     });
     new cdk.CfnOutput(this, 'ApiId', {
       value: this.api.apiId,

@@ -36,6 +36,7 @@ USER_POOL_ID=$(read_output "${PREFIX}-auth" "UserPoolId")
 USER_POOL_CLIENT_ID=$(read_output "${PREFIX}-auth" "UserPoolClientId")
 HOSTED_UI_DOMAIN=$(read_output "${PREFIX}-auth" "UserPoolDomain")
 GRAPHQL_URL=$(read_output "${PREFIX}-api" "GraphqlUrl")
+GRAPHQL_API_KEY=$(read_output "${PREFIX}-api" "GraphqlApiKey")
 
 if [ -z "$USER_POOL_ID" ] || [ "$USER_POOL_ID" = "None" ]; then
   echo -e "${RED}❌ Could not read UserPoolId from ${PREFIX}-auth — has it been deployed?${NC}"
@@ -63,6 +64,7 @@ ENV_FILE="${ENV_DIR}/.env.${STAGE}"
 cat > "$ENV_FILE" <<ENVEOF
 VITE_AWS_REGION=${REGION}
 VITE_GRAPHQL_URL=${GRAPHQL_URL}
+VITE_GRAPHQL_API_KEY=${GRAPHQL_API_KEY}
 VITE_USER_POOL_ID=${USER_POOL_ID}
 VITE_USER_POOL_CLIENT_ID=${USER_POOL_CLIENT_ID}
 VITE_HOSTED_UI_DOMAIN=${HOSTED_UI_DOMAIN}.auth.${REGION}.amazoncognito.com
