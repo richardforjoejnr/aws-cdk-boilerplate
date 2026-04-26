@@ -94,8 +94,13 @@ export const handler = async (event: AppSyncEvent<Args>): Promise<BookBasketResu
       Update: {
         TableName: TABLE_NAME,
         Key: classKey,
-        UpdateExpression: 'SET booked = if_not_exists(booked, :zero) + :one',
-        ConditionExpression: 'if_not_exists(booked, :zero) < capacity',
+        // if_not_exists() is allowed in UpdateExpression but NOT in ConditionExpression.
+        // The condition must rely on attribute_(not_)exists or direct comparisons. Seed-classes
+        // and admin-create-class always set booked=0 at creation, so the OR is just a defensive
+        // fallback for any class that ever lands without the attribute.
+        UpdateExpression: 'SET #booked = if_not_exists(#booked, :zero) + :one',
+        ConditionExpression: 'attribute_not_exists(#booked) OR #booked < #capacity',
+        ExpressionAttributeNames: { '#booked': 'booked', '#capacity': 'capacity' },
         ExpressionAttributeValues: { ':one': 1, ':zero': 0 },
       },
     });
