@@ -287,9 +287,13 @@ check_and_delete_cloudfront_distribution() {
 
     echo -e "\n${YELLOW}Checking for CloudFront distributions for ${stage}...${NC}"
 
-    # Get distributions with tag Environment=${stage}
+    # Match only the boilerplate's own distribution comment exactly. Previously this used
+    # `contains(Comment, '${stage}')` which also matched sibling systems' distributions
+    # (e.g. balance-booking's "${stage} Balance Booking Web Distribution"), disabling them
+    # as if they were orphaned. Each system that adds its own CloudFront stack in this
+    # repo should add its comment string to this filter (or, better, its own cleanup path).
     local distribution_ids=$(aws cloudfront list-distributions \
-        --query "DistributionList.Items[?contains(Comment, '${stage}')].Id" \
+        --query "DistributionList.Items[?Comment=='${stage} Web App Distribution'].Id" \
         --output text 2>/dev/null || echo "")
 
     if [ -n "$distribution_ids" ]; then

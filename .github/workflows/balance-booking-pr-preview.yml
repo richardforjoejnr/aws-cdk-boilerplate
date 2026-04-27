@@ -1,0 +1,180 @@
+name: Balance Booking — PR Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [main, develop]
+    paths:
+      - 'packages/balance-booking-web/**'
+      - 'packages/functions/src/balance-booking/**'
+      - 'packages/infrastructure/lib/balance-booking/**'
+      - 'packages/infrastructure/bin/app.ts'
+      - 'scripts/configure-balance-webapp.sh'
+      - 'scripts/deploy-balance-booking.sh'
+      - 'scripts/destroy-balance-booking.sh'
+      - '.github/workflows/balance-booking-*.yml'
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+env:
+  NODE_VERSION: '20'
+  AWS_REGION: 'us-east-1'
+
+jobs:
+  deploy-preview:
+    name: Deploy Balance Booking preview
+    runs-on: ubuntu-latest
+    if: github.event.action != 'closed'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set preview environment name
+        id: env-name
+        run: |
+          ENV_NAME="pr-${{ github.event.pull_request.number }}"
+          echo "env_name=${ENV_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh
+
+      - name: Deploy Balance Booking
+        id: deploy
+        env:
+          STAGE: ${{ steps.env-name.outputs.env_name }}
+          ADMIN_EMAIL: admin+${{ steps.env-name.outputs.env_name }}@balance-booking.test
+          ADMIN_PASSWORD: 'PreviewAdmin1!'
+        run: |
+          ./scripts/deploy-balance-booking.sh "$STAGE" \
+            --seed \
+            --admin-email "$ADMIN_EMAIL" \
+            --admin-password "$ADMIN_PASSWORD"
+          if [ -f ".balance-booking-outputs-${STAGE}.json" ]; then
+            WEB_URL=$(jq -r '.webUrl' ".balance-booking-outputs-${STAGE}.json")
+            GRAPHQL_URL=$(jq -r '.graphqlUrl' ".balance-booking-outputs-${STAGE}.json")
+            echo "web_url=${WEB_URL}" >> $GITHUB_OUTPUT
+            echo "graphql_url=${GRAPHQL_URL}" >> $GITHUB_OUTPUT
+          fi
+          echo "admin_email=${ADMIN_EMAIL}" >> $GITHUB_OUTPUT
+          echo "admin_password=${ADMIN_PASSWORD}" >> $GITHUB_OUTPUT
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const webUrl = '${{ steps.deploy.outputs.web_url }}';
+            const graphqlUrl = '${{ steps.deploy.outputs.graphql_url }}';
+            const envName = '${{ steps.env-name.outputs.env_name }}';
+            const adminEmail = '${{ steps.deploy.outputs.admin_email }}';
+            const adminPassword = '${{ steps.deploy.outputs.admin_password }}';
+
+            const body = `## 🧘 Balance Booking preview deployed
+
+            **Environment:** \`${envName}\`
+
+            - **App:** ${webUrl}
+            - **GraphQL:** ${graphqlUrl}
+
+            ### 👤 Admin sign-in (preview only)
+            - **Email:** \`${adminEmail}\`
+            - **Password:** \`${adminPassword}\`
+
+            Sign in at \`${webUrl}/auth/callback\` to access the **Admin** tab and create classes.
+
+            Sample classes have already been seeded. Anyone else can sign up with their own email to test the member booking flow.
+
+            > This environment (and the admin user) is destroyed automatically when the PR is merged or closed.
+
+            ---
+            <sub>Deployed from commit ${{ github.sha }}</sub>`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Balance Booking preview deployed')
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+  destroy-preview:
+    name: Destroy Balance Booking preview
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set preview environment name
+        id: env-name
+        run: |
+          ENV_NAME="pr-${{ github.event.pull_request.number }}"
+          echo "env_name=${ENV_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh
+
+      - name: Destroy Balance Booking stacks
+        env:
+          STAGE: ${{ steps.env-name.outputs.env_name }}
+        run: ./scripts/destroy-balance-booking.sh "$STAGE"
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const envName = '${{ steps.env-name.outputs.env_name }}';
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## 🗑️ Balance Booking preview destroyed\n\nEnvironment \`${envName}\` and all its AWS resources have been removed.`,
+            });

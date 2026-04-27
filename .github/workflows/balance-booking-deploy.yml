@@ -1,0 +1,101 @@
+name: Balance Booking — Manual Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: 'Environment to deploy to'
+        required: true
+        type: choice
+        options: [dev, test, prod]
+        default: dev
+      seed:
+        description: 'Seed sample classes after deploy'
+        required: false
+        type: boolean
+        default: false
+      admin_email:
+        description: 'Email of admin user to bootstrap (leave blank to skip)'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  NODE_VERSION: '20'
+  AWS_REGION: 'us-east-1'
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.stage }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.stage }}
+      url: ${{ steps.deploy.outputs.web_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh
+
+      - name: Deploy
+        id: deploy
+        env:
+          STAGE: ${{ inputs.stage }}
+          ADMIN_EMAIL: ${{ inputs.admin_email }}
+        run: |
+          ARGS=("$STAGE")
+          if [ "${{ inputs.seed }}" = "true" ]; then
+            ARGS+=("--seed")
+          fi
+          if [ -n "$ADMIN_EMAIL" ]; then
+            ARGS+=("--admin-email" "$ADMIN_EMAIL")
+          fi
+          ./scripts/deploy-balance-booking.sh "${ARGS[@]}"
+          if [ -f ".balance-booking-outputs-${STAGE}.json" ]; then
+            WEB_URL=$(jq -r '.webUrl' ".balance-booking-outputs-${STAGE}.json")
+            echo "web_url=${WEB_URL}" >> $GITHUB_OUTPUT
+          fi
+          if [ -f ".balance-admin-${STAGE}.json" ]; then
+            ADMIN_PWD=$(jq -r '.password' ".balance-admin-${STAGE}.json")
+            echo "::add-mask::${ADMIN_PWD}"
+            echo "admin_email_out=$(jq -r '.email' ".balance-admin-${STAGE}.json")" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Summary
+        run: |
+          echo "## ✅ Balance Booking deployed to ${{ inputs.stage }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**App:** ${{ steps.deploy.outputs.web_url }}" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ steps.deploy.outputs.admin_email_out }}" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Admin user:** \`${{ steps.deploy.outputs.admin_email_out }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "Password is auto-generated and printed in the deploy logs (also saved as \`.balance-admin-${{ inputs.stage }}.json\` artifact below). Change it on first sign-in." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload admin credentials artifact
+        if: steps.deploy.outputs.admin_email_out != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: balance-admin-${{ inputs.stage }}
+          path: .balance-admin-${{ inputs.stage }}.json
+          retention-days: 1
