@@ -65,3 +65,8 @@ samconfig.toml
 .claude/settings.json
 # Real soundbox device credentials (created by scripts/setup-real-device.sh)
 device-bundles/
+
+# The ghana-payments portals are plain static sites — their JS is SOURCE, not
+# build output, and must be committed (the blanket *.js above hid mqtt.min.js
+# from the PR-preview pipeline, breaking the deployed soundbox page)
+!packages/ghana-payments/web/**/*.js
