@@ -1,0 +1,113 @@
+import type { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
+import { GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { randomUUID } from 'node:crypto';
+import { ddb } from '../shared/clients.js';
+import { apiError, handleError, ok, parseBody, requireString } from '../shared/http.js';
+import { hashPii } from '../shared/pii.js';
+
+const TABLE = (): string => process.env.MERCHANTS_TABLE ?? '';
+const VALID_STATUSES = ['PENDING_KYC', 'ACTIVE', 'SUSPENDED', 'CLOSED'];
+
+interface CreateBody {
+  display_name: string;
+  phone: string;
+  business_category?: string;
+  ghana_card?: string;
+}
+
+/** POST /v1/merchants (§8.1) — PoC activates immediately (no KYC verification, D9). */
+export const createHandler = async (
+  event: APIGatewayProxyEvent
+): Promise<APIGatewayProxyResult> => {
+  try {
+    const body = parseBody<CreateBody>(event.body);
+    const item = {
+      merchant_id: `mer_${randomUUID().slice(0, 12)}`,
+      sk: 'PROFILE',
+      display_name: requireString(body.display_name, 'display_name'),
+      phone_hash: hashPii(requireString(body.phone, 'phone')),
+      business_category: body.business_category ?? 'general',
+      ...(body.ghana_card ? { ghana_card_hash: hashPii(body.ghana_card) } : {}),
+      status: 'ACTIVE',
+      kyc_level: 'NONE',
+      created_at: new Date().toISOString(),
+    };
+    await ddb.send(new PutCommand({ TableName: TABLE(), Item: item }));
+    return ok({ merchant_id: item.merchant_id, display_name: item.display_name, status: item.status }, 201);
+  } catch (err) {
+    return handleError(err);
+  }
+};
+
+/** GET /v1/merchants — list for the merchant portal (PoC+; scan is fine at PoC scale). */
+export const listHandler = async (): Promise<APIGatewayProxyResult> => {
+  try {
+    const res = await ddb.send(
+      new ScanCommand({
+        TableName: TABLE(),
+        FilterExpression: 'sk = :profile',
+        ExpressionAttributeValues: { ':profile': 'PROFILE' },
+      })
+    );
+    const merchants = (res.Items ?? []).map((m) => ({
+      merchant_id: m.merchant_id,
+      display_name: m.display_name,
+      business_category: m.business_category,
+      status: m.status,
+      created_at: m.created_at,
+    }));
+    return ok({ merchants });
+  } catch (err) {
+    return handleError(err);
+  }
+};
+
+/** GET /v1/merchants/{id} */
+export const getHandler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
+  try {
+    const id = event.pathParameters?.id;
+    if (!id) return apiError(400, 'MISSING_ID', 'merchant id required');
+    const res = await ddb.send(
+      new GetCommand({ TableName: TABLE(), Key: { merchant_id: id, sk: 'PROFILE' } })
+    );
+    if (!res.Item) return apiError(404, 'MERCHANT_NOT_FOUND', 'No such merchant');
+    const { phone_hash, ghana_card_hash, ...pub } = res.Item;
+    return ok(pub);
+  } catch (err) {
+    return handleError(err);
+  }
+};
+
+/** PATCH /v1/merchants/{id}/status — suspend = soft remove (§8.1). */
+export const statusHandler = async (
+  event: APIGatewayProxyEvent
+): Promise<APIGatewayProxyResult> => {
+  try {
+    const id = event.pathParameters?.id;
+    if (!id) return apiError(400, 'MISSING_ID', 'merchant id required');
+    const body = parseBody<{ status: string; reason?: string }>(event.body);
+    if (!VALID_STATUSES.includes(body.status)) {
+      return apiError(400, 'INVALID_STATUS', `status must be one of ${VALID_STATUSES.join(', ')}`);
+    }
+    await ddb.send(
+      new UpdateCommand({
+        TableName: TABLE(),
+        Key: { merchant_id: id, sk: 'PROFILE' },
+        UpdateExpression: 'SET #status = :status, status_reason = :reason, updated_at = :now',
+        ConditionExpression: 'attribute_exists(merchant_id)',
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: {
+          ':status': body.status,
+          ':reason': body.reason ?? null,
+          ':now': new Date().toISOString(),
+        },
+      })
+    );
+    return ok({ merchant_id: id, status: body.status });
+  } catch (err) {
+    if ((err as { name?: string }).name === 'ConditionalCheckFailedException') {
+      return apiError(404, 'MERCHANT_NOT_FOUND', 'No such merchant');
+    }
+    return handleError(err);
+  }
+};

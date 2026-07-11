@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Soundbox Spike — Phase 0</title>
+<style>
+  /* Tokens: docs/planning/ui-style.md (cloud-sandbox feel, orange primary) */
+  :root {
+    --surface:#0D0D12; --surface-raised:#16161E; --border:rgba(255,255,255,0.08);
+    --text:#E8E8EC; --text-muted:#8E8E9A; --accent:#F97316; --accent-hover:#FB8C3C;
+    --accent-soft:rgba(249,115,22,0.15); --success:#34d399; --danger:#f87171;
+  }
+  body { font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         max-width: 640px; margin: 2rem auto; padding: 0 1rem;
+         background: var(--surface); color: var(--text); -webkit-font-smoothing: antialiased; }
+  h1 { font-size: 1.25rem; font-weight: 600; }
+  p, pre { color: var(--text-muted); }
+  pre { background:#08080C; border:1px solid var(--border); border-radius:10px; padding:.8rem; overflow-x:auto; font-size:.78rem; }
+  button { font-size: 1.05rem; font-weight: 600; padding: .8rem 1.6rem; border-radius: 8px; border: 0;
+           background: var(--accent); color: #0D0D12; cursor: pointer; }
+  button:hover { background: var(--accent-hover); }
+  button:disabled { background: var(--surface-raised); color: var(--text-muted); border:1px solid var(--border); }
+  #log { margin-top:1rem; background: var(--surface-raised); border:1px solid var(--border); border-radius:12px; padding:.6rem 1rem; }
+  #log:empty { display:none; }
+  #log div { padding: .3rem 0; border-bottom: 1px solid var(--border); font-family: ui-monospace, monospace; font-size: .82rem; }
+  #log div:last-child { border-bottom: 0; }
+  .ok { color: var(--success); } .err { color: var(--danger); }
+  .announce { color: var(--accent); font-weight: 600; font-size: 1rem; background: var(--accent-soft); border-radius:6px; padding:.4rem .6rem !important; }
+  #badge { display:inline-block; margin-left:.6rem; padding:.2rem .6rem; border-radius:999px;
+           background: var(--surface-raised); border:1px solid var(--border); font-size:.75rem; color: var(--text-muted); vertical-align: middle; }
+</style>
+</head>
+<body>
+<h1>🔊 Ghana Payments — Soundbox Spike <span id="badge">disconnected</span></h1>
+<p>Click the button (this is the user gesture that unlocks speech), then publish:</p>
+<pre>aws iot-data publish --topic spike/announce --cli-binary-format raw-in-base64-out \
+  --payload '{"message":"Payment received, 20 Ghana cedis"}'</pre>
+<button id="go">Pair &amp; Connect</button>
+<div id="log"></div>
+
+<script src="mqtt.min.js"></script>
+<script src="config.js"></script>
+<script>
+const cfg = window.SPIKE_CONFIG;
+const logEl = document.getElementById('log');
+const badge = document.getElementById('badge');
+function log(msg, cls) { const d = document.createElement('div'); if (cls) d.className = cls; d.textContent = msg; logEl.prepend(d); }
+
+async function cognitoCall(target, body) {
+  const res = await fetch(`https://cognito-identity.${cfg.region}.amazonaws.com/`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-amz-json-1.1', 'x-amz-target': `AWSCognitoIdentityService.${target}` },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${target} failed: HTTP ${res.status}`);
+  return res.json();
+}
+
+const enc = new TextEncoder();
+async function sha256hex(s) {
+  const h = await crypto.subtle.digest('SHA-256', enc.encode(s));
+  return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+async function hmac(key, data) {
+  const k = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return new Uint8Array(await crypto.subtle.sign('HMAC', k, enc.encode(data)));
+}
+async function signedIotUrl(endpoint, region, creds) {
+  const amzdate = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
+  const date = amzdate.slice(0, 8);
+  const service = 'iotdevicegateway';
+  const scope = `${date}/${region}/${service}/aws4_request`;
+  const query = 'X-Amz-Algorithm=AWS4-HMAC-SHA256'
+    + `&X-Amz-Credential=${encodeURIComponent(`${creds.AccessKeyId}/${scope}`)}`
+    + `&X-Amz-Date=${amzdate}&X-Amz-SignedHeaders=host`;
+  const canonical = ['GET', '/mqtt', query, `host:${endpoint}`, '', 'host', await sha256hex('')].join('\n');
+  const toSign = ['AWS4-HMAC-SHA256', amzdate, scope, await sha256hex(canonical)].join('\n');
+  let key = await hmac(enc.encode('AWS4' + creds.SecretKey), date);
+  key = await hmac(key, region);
+  key = await hmac(key, service);
+  key = await hmac(key, 'aws4_request');
+  const sig = [...await hmac(key, toSign)].map(b => b.toString(16).padStart(2, '0')).join('');
+  let url = `wss://${endpoint}/mqtt?${query}&X-Amz-Signature=${sig}`;
+  if (creds.SessionToken) url += `&X-Amz-Security-Token=${encodeURIComponent(creds.SessionToken)}`;
+  return url;
+}
+
+function speak(text) {
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 0.95;
+  speechSynthesis.speak(u);
+}
+
+document.getElementById('go').addEventListener('click', async () => {
+  document.getElementById('go').disabled = true;
+  try {
+    // User gesture: warm up the speech engine so later async announcements are allowed
+    speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+
+    // F-6 reload test: reuse a cached identity if we have one
+    let identityId = localStorage.getItem('spike_identity');
+    if (identityId) {
+      log(`Reusing cached identity (reload survives): ${identityId}`, 'ok');
+    } else {
+      identityId = (await cognitoCall('GetId', { IdentityPoolId: cfg.identityPoolId })).IdentityId;
+      localStorage.setItem('spike_identity', identityId);
+      log(`New Cognito identity: ${identityId}`, 'ok');
+    }
+
+    const attach = await fetch(cfg.attachUrl, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ identityId }),
+    });
+    log(`AttachPolicy: HTTP ${attach.status}`, attach.ok ? 'ok' : 'err');
+    if (!attach.ok) throw new Error(await attach.text());
+
+    const { Credentials } = await cognitoCall('GetCredentialsForIdentity', { IdentityId: identityId });
+    log('Temporary AWS credentials obtained', 'ok');
+
+    const url = await signedIotUrl(cfg.iotEndpoint, cfg.region, Credentials);
+    const clientId = 'spike-web-' + Math.random().toString(16).slice(2, 10);
+    const client = mqtt.connect(url, { clientId, protocolVersion: 4, clean: true, reconnectPeriod: 3000 });
+
+    client.on('connect', () => {
+      badge.textContent = 'connected: ' + clientId; badge.style.background = '#1a5c1a';
+      log(`MQTT connected over WSS as ${clientId}`, 'ok');
+      client.subscribe('spike/announce', { qos: 1 }, (err) =>
+        log(err ? 'Subscribe FAILED: ' + err.message : 'Subscribed to spike/announce — publish now!', err ? 'err' : 'ok'));
+    });
+    client.on('message', (topic, payload) => {
+      let text = payload.toString();
+      let paymentId = null;
+      try { const j = JSON.parse(text); text = j.message || text; paymentId = j.payment_id || null; } catch {}
+      // F-3: device-side dedupe by payment_id (QoS 1 may redeliver)
+      if (paymentId) {
+        window.__seen = window.__seen || new Set();
+        if (window.__seen.has(paymentId)) { log(`duplicate ${paymentId} ignored`, 'ok'); return; }
+        window.__seen.add(paymentId);
+      }
+      log(`ANNOUNCE: ${text}`, 'announce');
+      speak(text);
+      client.publish('spike/ack', JSON.stringify({ clientId, played: true }), { qos: 1 });
+    });
+    client.on('error', (e) => { log('MQTT error: ' + e.message, 'err'); badge.textContent = 'error'; });
+    client.on('close', () => { badge.textContent = 'disconnected'; badge.style.background = '#333'; });
+  } catch (e) {
+    log('FAILED: ' + e.message, 'err');
+    document.getElementById('go').disabled = false;
+  }
+});
+</script>
+</body>
+</html>
