@@ -109,17 +109,33 @@ describe('device registration', () => {
 });
 
 describe('pairing-code issuance (§10.2 step 1)', () => {
-  it('issues a 6-digit code with a 10-minute expiry for an ACTIVE merchant', async () => {
-    ddbMock.on(GetCommand).resolves({ Item: { merchant_id: 'mer_1', status: 'ACTIVE' } });
+  it('issues a 6-digit non-expiring code for a VIRTUAL device (shareable)', async () => {
+    ddbMock
+      .on(GetCommand, { TableName: 'test-merchants' })
+      .resolves({ Item: { merchant_id: 'mer_1', status: 'ACTIVE' } });
+    ddbMock
+      .on(GetCommand, { TableName: 'test-devices' })
+      .resolves({ Item: { device_id: 'dev_1', device_type: 'VIRTUAL', status: 'UNASSIGNED' } });
     const res = await pairingCodeHandler(event({ merchant_id: 'mer_1' }, { id: 'dev_1' }));
     expect(res.statusCode).toBe(200);
-    const body = parse<{ pairing_code: string; expires_in_seconds: number }>(res);
+    const body = parse<{ pairing_code: string; expires_in_seconds: number | null }>(res);
     expect(body.pairing_code).toMatch(/^\d{6}$/);
-    expect(body.expires_in_seconds).toBe(600);
+    expect(body.expires_in_seconds).toBeNull(); // virtual codes don't expire
     const update = ddbMock.commandCalls(UpdateCommand)[0].args[0].input;
     expect(update.ConditionExpression).toContain('#status <> :retired'); // RETIRED can't get a code
-    const exp = update.ExpressionAttributeValues?.[':exp'] as number;
-    expect(exp).toBeGreaterThan(Date.now());
+    expect(update.ExpressionAttributeValues?.[':exp']).toBeGreaterThan(Date.now() + 365 * 24 * 3600 * 1000);
+  });
+
+  it('issues a 10-minute code for a REAL device (production-like security)', async () => {
+    ddbMock
+      .on(GetCommand, { TableName: 'test-merchants' })
+      .resolves({ Item: { merchant_id: 'mer_1', status: 'ACTIVE' } });
+    ddbMock
+      .on(GetCommand, { TableName: 'test-devices' })
+      .resolves({ Item: { device_id: 'dev_1', device_type: 'REAL', status: 'UNASSIGNED' } });
+    const res = await pairingCodeHandler(event({ merchant_id: 'mer_1' }, { id: 'dev_1' }));
+    expect(parse<{ expires_in_seconds: number }>(res).expires_in_seconds).toBe(600);
+    const exp = ddbMock.commandCalls(UpdateCommand)[0].args[0].input.ExpressionAttributeValues?.[':exp'] as number;
     expect(exp).toBeLessThanOrEqual(Date.now() + 10 * 60_000);
   });
 

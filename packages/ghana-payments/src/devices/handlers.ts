@@ -22,6 +22,10 @@ import { apiError, handleError, ok, parseBody, requireString } from '../shared/h
 const DEVICES_TABLE = (): string => process.env.DEVICES_TABLE ?? '';
 const MERCHANTS_TABLE = (): string => process.env.MERCHANTS_TABLE ?? '';
 const PAIRING_CODE_TTL_MS = 10 * 60_000;
+// Virtual soundboxes (browser demo, incl. links shared with others) get a
+// non-expiring code so it survives being texted. Still SINGLE-USE — consumed on
+// pairing. Real hardware keeps the short window (production-like security).
+const NON_EXPIRING = 8_640_000_000_000_000; // max JS timestamp — effectively never
 const VALID_STATUSES = ['UNASSIGNED', 'PAIRED', 'ACTIVE', 'OFFLINE', 'SUSPENDED', 'RETIRED'];
 
 export interface DeviceItem {
@@ -155,6 +159,9 @@ export const pairingCodeHandler = async (
     }
 
     const code = String(randomInt(100000, 999999));
+    const expiresAt = (dev?.device_type ?? 'VIRTUAL') === 'REAL'
+      ? Date.now() + PAIRING_CODE_TTL_MS
+      : NON_EXPIRING;
     try {
       await ddb.send(
         new UpdateCommand({
@@ -166,7 +173,7 @@ export const pairingCodeHandler = async (
           ExpressionAttributeNames: { '#status': 'status' },
           ExpressionAttributeValues: {
             ':code': code,
-            ':exp': Date.now() + PAIRING_CODE_TTL_MS,
+            ':exp': expiresAt,
             ':mid': merchantId,
             ':retired': 'RETIRED',
           },
@@ -178,7 +185,11 @@ export const pairingCodeHandler = async (
       }
       throw err;
     }
-    return ok({ device_id: deviceId, pairing_code: code, expires_in_seconds: 600 });
+    return ok({
+      device_id: deviceId,
+      pairing_code: code,
+      expires_in_seconds: expiresAt === NON_EXPIRING ? null : 600,
+    });
   } catch (err) {
     return handleError(err);
   }

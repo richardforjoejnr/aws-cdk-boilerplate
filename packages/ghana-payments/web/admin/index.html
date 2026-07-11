@@ -199,6 +199,9 @@ function deviceChip(d) {
   if (d.status === 'UNASSIGNED' && d.pending_merchant_id) {
     const live = d.pairing_code_expires && d.pairing_code_expires > Date.now();
     if (live) {
+      // Virtual codes don't expire (far-future timestamp) → no countdown
+      const nonExpiring = d.pairing_code_expires > Date.now() + 365 * 24 * 3600 * 1000;
+      if (nonExpiring) return `<span class="chip accent">CODE ${d.pairing_code || ''}</span>`;
       const mins = Math.max(1, Math.round((d.pairing_code_expires - Date.now()) / 60000));
       return `<span class="chip accent">CODE ${d.pairing_code || ''} · ${mins}m left</span>`;
     }
@@ -265,7 +268,7 @@ function showPairingBanner(serial, merchantId, code, deviceType, deviceId) {
   const link = `/soundbox/?serial=${encodeURIComponent(serial)}`;
   $('pairing-result').innerHTML =
     `Pairing code for <b>${serial}</b> → ${mName}: ` +
-    `<span class="chip accent" style="font-size:1rem">${code}</span> (valid 10 min) — ` +
+    `<span class="chip accent" style="font-size:1rem">${code}</span> — ` +
     (deviceType === 'REAL'
       ? `use this code when provisioning the device — see <code>docs/DEVICE_SETUP.md</code>`
       : `type it on <a href="${link}" target="_blank" style="color:var(--accent)">the soundbox page</a> (serial prefilled) and press Pair &amp; connect`);
