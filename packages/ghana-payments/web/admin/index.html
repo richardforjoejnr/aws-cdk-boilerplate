@@ -376,10 +376,10 @@ document.getElementById('issue-submit').addEventListener('click', async () => {
   if (!title || !desc) { st.textContent = 'Title and description are required'; return; }
   document.getElementById('issue-submit').disabled = true;
   st.textContent = 'Submitting…';
-  const res = await fetch('/api/v1/issues', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
+  const res = await api('/issues', {
+    method: 'POST',
     body: JSON.stringify({ title, description: desc, source: 'admin' }),
-  }).then(async r => ({ ok: r.ok, body: await r.json().catch(() => ({})) }));
+  });
   document.getElementById('issue-submit').disabled = false;
   if (res.ok) {
     st.innerHTML = `✓ Raised <a href="${res.body.issue_url}" target="_blank" style="color:var(--accent)">issue #${res.body.number}</a>`;

@@ -45,19 +45,6 @@
     <div id="log" style="font-family:ui-monospace,monospace; font-size:.82rem"></div>
   </div>
 
-  <div id="issue-card" class="card" style="display:none">
-    <h2>🐞 Report an issue</h2>
-    <label>Title</label>
-    <input id="issue-title" maxlength="200" placeholder="Short summary" />
-    <label>Description</label>
-    <input id="issue-desc" maxlength="5000" placeholder="What happened? What did you expect?" />
-    <div class="dim" id="issue-status" style="margin-top:.4rem"></div>
-    <div class="row">
-      <button id="issue-submit" class="small">Submit to GitHub</button>
-      <button class="small secondary" onclick="document.getElementById('issue-card').style.display='none'">Cancel</button>
-    </div>
-  </div>
-  <p style="text-align:center"><button id="issue-open" class="small secondary" style="width:auto">🐞 Report an issue</button></p>
 </div>
 
 <script>
@@ -218,30 +205,6 @@ $('unpair-btn').addEventListener('click', () => {
   location.reload();
 });
 
-
-document.getElementById('issue-open').addEventListener('click', () => {
-  const c = document.getElementById('issue-card');
-  c.style.display = ''; c.scrollIntoView({ behavior: 'smooth' });
-});
-document.getElementById('issue-submit').addEventListener('click', async () => {
-  const st = document.getElementById('issue-status');
-  const title = document.getElementById('issue-title').value.trim();
-  const desc = document.getElementById('issue-desc').value.trim();
-  if (!title || !desc) { st.textContent = 'Title and description are required'; return; }
-  document.getElementById('issue-submit').disabled = true;
-  st.textContent = 'Submitting…';
-  const res = await fetch('/api/v1/issues', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ title, description: desc, source: 'soundbox' }),
-  }).then(async r => ({ ok: r.ok, body: await r.json().catch(() => ({})) }));
-  document.getElementById('issue-submit').disabled = false;
-  if (res.ok) {
-    st.innerHTML = `✓ Raised <a href="${res.body.issue_url}" target="_blank" style="color:var(--accent)">issue #${res.body.number}</a>`;
-    document.getElementById('issue-title').value = ''; document.getElementById('issue-desc').value = '';
-  } else {
-    st.textContent = res.body?.error?.message || 'Failed to raise issue';
-  }
-});
 
 // Prefill from the merchant portal's Pair link (?serial=... only — the pairing
 // code is a secret the person enters by hand)

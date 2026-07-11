@@ -363,7 +363,7 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
         ],
       })
     );
-    v1.addResource('issues').addMethod('POST', integrate(issues));
+    v1.addResource('issues').addMethod('POST', integrate(issues), adminOpts);
 
     // Cost footer: account MTD spend, SSM-cached 6h (each CE call bills $0.01)
     const costs = make('costs', 'costs/handlers.ts');
