@@ -312,6 +312,7 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
       })
     );
     foundation.merchantsTable.grantReadData(devicePairingCode);
+    foundation.merchantsTable.grantReadData(devicePair); // pair response includes merchant_name
     devicePair.addToRolePolicy(
       new iam.PolicyStatement({ actions: ['iot:CreatePolicy', 'iot:AttachPolicy'], resources: ['*'] })
     );

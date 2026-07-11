@@ -272,9 +272,20 @@ export const pairHandler = async (event: APIGatewayProxyEvent): Promise<APIGatew
       })
     );
 
+    const merchantRes = await ddb.send(
+      new GetCommand({
+        TableName: MERCHANTS_TABLE(),
+        Key: { merchant_id: device.pending_merchant_id, sk: 'PROFILE' },
+      })
+    );
+    const merchantName =
+      (merchantRes.Item as { display_name?: string } | undefined)?.display_name ??
+      device.pending_merchant_id;
+
     return ok({
       device_id: device.device_id,
       merchant_id: device.pending_merchant_id,
+      merchant_name: merchantName,
       auth_mode: body.certificate_arn ? 'certificate' : 'cognito',
       client_id: `soundbox-${device.device_id}`,
       topics: {

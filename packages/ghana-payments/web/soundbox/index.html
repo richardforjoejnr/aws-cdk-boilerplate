@@ -37,6 +37,7 @@
       <div>
         <div class="muted">Device</div>
         <div class="merchant-name" id="device-serial" style="font-size:1.05rem"></div>
+        <div class="muted" id="device-merchant"></div>
         <div class="dim" id="device-id"></div>
       </div>
       <div style="flex:0 0 auto; text-align:right">
@@ -130,7 +131,8 @@ function handleMessage(topic, payload) {
       speak('This soundbox has been removed.');
       log('device removed from the merchant portal — unpairing', 'dim');
       ['sbx_device', 'sbx_serial', 'sbx_identity', 'sbx_config'].forEach(k => localStorage.removeItem(k));
-      client.end(true);
+      const old = client; client = null; // prevent the close handler auto-reconnecting
+      old.end(true);
       setBadge('removed', 'danger');
       setTimeout(() => location.replace('/soundbox/'), 2500);
       return;
@@ -143,25 +145,45 @@ function handleMessage(topic, payload) {
   }
 }
 
+let heartbeatTimer = null, reconnectTimer = null;
+
 async function connect(dev, cfg) {
   device = dev;
+  // Single-client discipline: a superseded client must not touch the badge or
+  // trigger reconnects (two clients with one clientId evict each other forever).
+  if (client) { const old = client; client = null; try { old.end(true); } catch {} }
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  setBadge('connecting…', 'warning');
+
   const { IdentityId } = JSON.parse(localStorage.getItem('sbx_identity'));
   const { Credentials } = await cognitoCall(cfg.region, 'GetCredentialsForIdentity', { IdentityId });
   const url = await signedIotUrl(cfg.iot_endpoint, cfg.region, Credentials);
-  client = mqtt.connect(url, { clientId: dev.client_id, protocolVersion: 4, clean: true, reconnectPeriod: 3000 });
-  client.on('connect', () => {
+  // reconnectPeriod: 0 — mqtt.js would replay the SAME presigned URL, which goes
+  // stale (SigV4/credential expiry). We reconnect ourselves with a freshly signed
+  // URL and fresh Cognito credentials every time.
+  const c = mqtt.connect(url, { clientId: dev.client_id, protocolVersion: 4, clean: true, reconnectPeriod: 0, connectTimeout: 15000 });
+  client = c;
+  c.on('connect', () => {
+    if (client !== c) return;
     setBadge('connected', 'success');
-    client.subscribe([dev.topics.payments, dev.topics.commands], { qos: 1 }, err =>
+    c.subscribe([dev.topics.payments, dev.topics.commands], { qos: 1 }, err =>
       log(err ? 'subscribe failed: ' + err.message : `listening on ${dev.topics.payments}`, err ? undefined : 'dim'));
-    client.publish(dev.topics.heartbeat, JSON.stringify({ status: 'online', battery: 100 }), { qos: 1 });
+    c.publish(dev.topics.heartbeat, JSON.stringify({ status: 'online', battery: 100 }), { qos: 1 });
   });
-  client.on('message', handleMessage);
-  client.on('close', () => setBadge('reconnecting…', 'warning'));
-  client.on('error', e => log('mqtt error: ' + e.message));
-  setInterval(() => {
-    if (client?.connected) client.publish(dev.topics.heartbeat, JSON.stringify({ status: 'online', battery: 100 }), { qos: 1 });
+  c.on('message', handleMessage);
+  c.on('close', () => {
+    if (client !== c) return;
+    setBadge('reconnecting…', 'warning');
+    reconnectTimer = setTimeout(() => connect(dev, cfg).catch(e => log('reconnect failed: ' + e.message)), 3000);
+  });
+  c.on('error', e => { if (client === c) log('mqtt error: ' + e.message); });
+  heartbeatTimer = setInterval(() => {
+    if (client === c && c.connected) c.publish(dev.topics.heartbeat, JSON.stringify({ status: 'online', battery: 100 }), { qos: 1 });
   }, 60000);
+
   $('device-serial').textContent = localStorage.getItem('sbx_serial');
+  $('device-merchant').textContent = dev.merchant_name ? `Paired to ${dev.merchant_name}` : (dev.merchant_id ? `Paired to ${dev.merchant_id}` : '');
   $('device-id').textContent = dev.device_id;
   show('pair-card', false); show('reconnect-card', false); show('device-card'); show('log-card');
 }
