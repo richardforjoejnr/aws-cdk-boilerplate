@@ -8,7 +8,8 @@ on:
       - 'packages/balance-booking-web/**'
       - 'packages/functions/src/balance-booking/**'
       - 'packages/infrastructure/lib/balance-booking/**'
-      - 'packages/infrastructure/bin/app.ts'
+      # bin/app.ts deliberately NOT listed: it's shared, so every new project added
+      # to the CDK app would otherwise trigger a balance preview forever
       - 'scripts/configure-balance-webapp.sh'
       - 'scripts/deploy-balance-booking.sh'
       - 'scripts/destroy-balance-booking.sh'

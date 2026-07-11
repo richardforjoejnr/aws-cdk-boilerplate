@@ -224,6 +224,21 @@ cleanup_all_log_groups() {
 
     echo -e "\n${YELLOW}Cleaning up all CloudWatch log groups for ${stage}...${NC}"
 
+    # SAFETY: log groups are only orphans if the stage's stacks are GONE. Deleting
+    # them while stacks exist removes CloudFormation-managed log groups (deletion
+    # succeeds!), which manufactures drift that the drift-fix step then "repairs"
+    # by deleting whole stacks. Skip entirely when any stack for this stage exists.
+    local live_stacks=""
+    live_stacks=$(aws cloudformation list-stacks --region "$REGION" \
+        --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE UPDATE_ROLLBACK_COMPLETE \
+            CREATE_IN_PROGRESS UPDATE_IN_PROGRESS ROLLBACK_COMPLETE \
+        --query "StackSummaries[?starts_with(StackName, '${stage}-')].StackName" \
+        --output text 2>/dev/null) || live_stacks=""
+    if [ -n "$live_stacks" ] && [ "$live_stacks" != "None" ]; then
+        echo -e "${BLUE}  ℹ Stacks still exist for ${stage} — skipping log group cleanup (they are stack-managed)${NC}"
+        return 0
+    fi
+
     # Define log group prefixes to search
     local prefixes=(
         "/aws/lambda/${stage}-"
