@@ -8,6 +8,9 @@
 
 set -e
 
+# Ghana stacks are gated out of `cdk deploy --all` in bin/app.ts; opt in here.
+export DEPLOY_GHANA=true
+
 STAGE=${1:-dev}
 
 GREEN='\033[0;32m'
