@@ -62,7 +62,7 @@
         <div><label>Type</label>
           <select id="d-type"><option value="VIRTUAL">Virtual (browser)</option><option value="REAL">Real hardware</option></select>
         </div>
-        <div><label>Model</label><input id="d-model" placeholder="virtual-soundbox" /></div>
+        <div><label>Merchant</label><select id="d-merchant"><option value="">— pair later —</option></select></div>
         <div style="flex:0 0 auto; align-self:flex-end"><button id="d-register-btn" class="small">Register</button></div>
       </div>
       <div class="row" id="real-fields" style="display:none">
@@ -119,6 +119,10 @@ async function loadMerchants() {
   if (res.status === 403) { localStorage.removeItem('ghana_admin_key'); show('portal', false); show('key-card'); return toast('API key rejected'); }
   if (!res.ok) return toast('Failed to load merchants');
   merchantsCache = res.body.merchants;
+  const sel = $('d-merchant');
+  if (sel) sel.innerHTML = '<option value="">— pair later —</option>' + merchantsCache
+    .filter(m => m.status === 'ACTIVE')
+    .map(m => `<option value="${m.merchant_id}">${m.display_name}</option>`).join('');
   $('merchant-rows').innerHTML = res.body.merchants
     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
     .map(m => `<tr>
@@ -169,17 +173,20 @@ let merchantsCache = [];
 async function loadDevices() {
   const res = await api('/devices');
   if (!res.ok) return toast('Failed to load devices');
+  const merchantName = id => (merchantsCache.find(m => m.merchant_id === id) || {}).display_name || id || '—';
   $('device-rows').innerHTML = (res.body.devices || [])
+    .filter(d => d.status !== 'RETIRED')
     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
     .map(d => `<tr>
       <td>${d.serial_number} <span class="chip" style="font-size:.62rem">${d.device_type === 'REAL' ? '🔌 real' : '🌐 virtual'}</span></td>
       <td><span class="chip ${{ACTIVE:'success',PAIRED:'accent',UNASSIGNED:'warning',SUSPENDED:'danger',RETIRED:'danger',OFFLINE:'danger'}[d.status]||''}">${d.status}</span></td>
-      <td class="dim">${d.merchant_id || '—'}</td>
+      <td>${d.merchant_id ? merchantName(d.merchant_id) : '—'}</td>
       <td class="dim">${d.last_seen_at ? new Date(d.last_seen_at).toLocaleTimeString() : '—'}</td>
       <td style="text-align:right; white-space:nowrap">
         <button class="small" onclick="pairDevice('${d.device_id}','${d.serial_number}')">Pair…</button>
         <button class="small secondary" onclick="testDevice('${d.device_id}')">Test</button>
         <button class="small secondary" onclick="deviceInfo('${d.device_id}','${d.serial_number}','${d.device_type}')">Info</button>
+        <button class="small danger" onclick="removeDevice('${d.device_id}','${d.serial_number}')">Remove</button>
       </td></tr>`)
     .join('');
 }
@@ -210,7 +217,6 @@ window.testDevice = async (deviceId) => {
 
 $('d-type').addEventListener('change', () => {
   show('real-fields', $('d-type').value === 'REAL');
-  $('d-model').placeholder = $('d-type').value === 'REAL' ? 'esp32-soundbox' : 'virtual-soundbox';
 });
 
 window.deviceInfo = async (deviceId, serial, type) => {
@@ -243,21 +249,46 @@ window.deviceInfo = async (deviceId, serial, type) => {
 
 $('d-register-btn').addEventListener('click', async () => {
   const isReal = $('d-type').value === 'REAL';
+  const serial = $('d-serial').value.trim();
   const res = await api('/devices', {
     method: 'POST',
     body: JSON.stringify({
-      serial_number: $('d-serial').value.trim(),
+      serial_number: serial,
       device_type: $('d-type').value,
-      model: $('d-model').value.trim() || (isReal ? 'esp32-soundbox' : 'virtual-soundbox'),
+      model: isReal ? 'esp32-soundbox' : 'virtual-soundbox',
       ...(isReal && $('d-firmware').value.trim() ? { firmware_version: $('d-firmware').value.trim() } : {}),
       ...(isReal && $('d-notes').value.trim() ? { notes: $('d-notes').value.trim() } : {}),
     }),
   });
   if (!res.ok) return toast(res.body?.error?.message || 'Register failed');
-  $('d-serial').value = '';
   toast(`Registered ${res.body.device_id}`);
+  // Merchant chosen up front -> generate the pairing code in the same step
+  const merchantId = $('d-merchant').value;
+  if (merchantId) {
+    const pc = await api(`/devices/${res.body.device_id}/pairing-code`, {
+      method: 'POST', body: JSON.stringify({ merchant_id: merchantId }),
+    });
+    if (pc.ok) {
+      const mName = (merchantsCache.find(m => m.merchant_id === merchantId) || {}).display_name || merchantId;
+      $('pairing-result').innerHTML =
+        `Pairing code for <b>${serial}</b> → ${mName}: ` +
+        `<span class="chip accent" style="font-size:1rem">${pc.body.pairing_code}</span> ` +
+        `(valid 10 min) — ${$('d-type').value === 'REAL'
+          ? `run <code>./scripts/setup-real-device.sh dev ${serial} ${pc.body.pairing_code}</code>`
+          : `enter it on <a href="/soundbox/" target="_blank" style="color:var(--accent)">the soundbox page</a> with serial <b>${serial}</b>`}`;
+    }
+  }
+  $('d-serial').value = '';
   loadDevices();
 });
+
+window.removeDevice = async (deviceId, serial) => {
+  if (!confirm(`Remove ${serial}? It will stop receiving announcements.`)) return;
+  const res = await api(`/devices/${deviceId}/status`, {
+    method: 'PATCH', body: JSON.stringify({ status: 'RETIRED', reason: 'removed via portal' }),
+  });
+  res.ok ? loadDevices() : toast('Remove failed');
+};
 $('dev-refresh-btn').addEventListener('click', loadDevices);
 
 $('login-btn').addEventListener('click', async () => {
@@ -293,7 +324,7 @@ async function loadCosts() {
     `yesterday $${c.yesterday_usd.toFixed(2)} · whole account (${c.month}) · CE lags ~24h · refreshed ${age < 1 ? '<1' : age}h ago`;
 }
 
-function start() { if (!KEY) return; show('key-card', false); show('portal'); loadMerchants(); loadDevices(); loadCosts(); }
+async function start() { if (!KEY) return; show('key-card', false); show('portal'); await loadMerchants(); loadDevices(); loadCosts(); }
 start();
 </script>
 </body>
