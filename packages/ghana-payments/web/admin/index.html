@@ -146,8 +146,9 @@ async function loadMerchants() {
       <td style="text-align:right; white-space:nowrap">
         <button class="small" onclick="genQr('${m.merchant_id}', '${m.display_name.replace(/'/g, "\\'")}')">QR</button>
         ${m.status === 'ACTIVE'
-          ? `<button class="small danger" onclick="setStatus('${m.merchant_id}','SUSPENDED')">Remove</button>`
+          ? `<button class="small secondary" onclick="setStatus('${m.merchant_id}','SUSPENDED')">Suspend</button>`
           : `<button class="small secondary" onclick="setStatus('${m.merchant_id}','ACTIVE')">Reactivate</button>`}
+        <button class="small danger" onclick="removeMerchant('${m.merchant_id}','${m.display_name.replace(/'/g, "\\'")}')">Remove</button>
       </td></tr>`)
     .join('');
 }
@@ -162,6 +163,12 @@ window.genQr = async (id, name) => {
   $('qr-download').download = `qr-${name.toLowerCase().replace(/\s+/g, '-')}.png`;
   show('qr-card');
   $('qr-card').scrollIntoView({ behavior: 'smooth' });
+};
+
+window.removeMerchant = async (id, name) => {
+  if (!confirm(`Remove ${name} permanently? Their QR badges stop working and this cannot be undone. Use Suspend to disable temporarily.`)) return;
+  const res = await api(`/merchants/${id}`, { method: 'DELETE' });
+  res.ok ? (toast(`${name} removed`), loadMerchants(), loadDevices()) : toast(res.body?.error?.message || 'Remove failed');
 };
 
 window.setStatus = async (id, status) => {

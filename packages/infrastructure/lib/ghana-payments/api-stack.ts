@@ -107,9 +107,11 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     const merchantList = make('merchant-list', 'merchants/handlers.ts', 'listHandler');
     const merchantGet = make('merchant-get', 'merchants/handlers.ts', 'getHandler');
     const merchantStatus = make('merchant-status', 'merchants/handlers.ts', 'statusHandler');
-    for (const fn of [merchantCreate, merchantList, merchantGet, merchantStatus]) {
+    const merchantDelete = make('merchant-delete', 'merchants/handlers.ts', 'deleteHandler');
+    for (const fn of [merchantCreate, merchantList, merchantGet, merchantStatus, merchantDelete]) {
       foundation.merchantsTable.grantReadWriteData(fn);
     }
+    foundation.qrCodesTable.grantReadWriteData(merchantDelete); // deactivates the merchant's QRs
 
     const qrGenerate = make('qr-generate', 'qr/handlers.ts', 'generateHandler');
     const qrGet = make('qr-get', 'qr/handlers.ts', 'getHandler');
@@ -215,6 +217,7 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     merchants.addMethod('GET', integrate(merchantList), adminOpts);
     const merchantById = merchants.addResource('{id}');
     merchantById.addMethod('GET', integrate(merchantGet), adminOpts);
+    merchantById.addMethod('DELETE', integrate(merchantDelete), adminOpts);
     merchantById.addResource('status').addMethod('PATCH', integrate(merchantStatus), adminOpts);
     merchantById.addResource('qrs').addMethod('POST', integrate(qrGenerate), adminOpts);
 

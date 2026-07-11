@@ -1,5 +1,12 @@
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
-import { GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import {
+  DeleteCommand,
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+  ScanCommand,
+  UpdateCommand,
+} from '@aws-sdk/lib-dynamodb';
 import { randomUUID } from 'node:crypto';
 import { ddb } from '../shared/clients.js';
 import { apiError, handleError, ok, parseBody, requireString } from '../shared/http.js';
@@ -95,6 +102,61 @@ export const getHandler = async (event: APIGatewayProxyEvent): Promise<APIGatewa
       kyc_level: m.kyc_level,
       created_at: m.created_at,
     });
+  } catch (err) {
+    return handleError(err);
+  }
+};
+
+/**
+ * DELETE /v1/merchants/{id} — remove for real (admin): deactivates the merchant's
+ * QR badges (a scanned old badge then correctly resolves 410 "no longer active"),
+ * then deletes all the merchant's items. Payment history stays in the ledger;
+ * paired devices remain and can be removed separately.
+ */
+export const deleteHandler = async (
+  event: APIGatewayProxyEvent
+): Promise<APIGatewayProxyResult> => {
+  try {
+    const id = event.pathParameters?.id;
+    if (!id) return apiError(400, 'MISSING_ID', 'merchant id required');
+    const existing = await ddb.send(
+      new GetCommand({ TableName: TABLE(), Key: { merchant_id: id, sk: 'PROFILE' } })
+    );
+    if (!existing.Item) return apiError(404, 'MERCHANT_NOT_FOUND', 'No such merchant');
+
+    const qrs = await ddb.send(
+      new QueryCommand({
+        TableName: process.env.QR_CODES_TABLE,
+        IndexName: 'GSI1',
+        KeyConditionExpression: 'merchant_id = :m',
+        ExpressionAttributeValues: { ':m': id },
+      })
+    );
+    for (const qr of (qrs.Items ?? []) as Array<{ qr_id: string }>) {
+      await ddb.send(
+        new UpdateCommand({
+          TableName: process.env.QR_CODES_TABLE,
+          Key: { qr_id: qr.qr_id },
+          UpdateExpression: 'SET #status = :inactive, updated_at = :now',
+          ExpressionAttributeNames: { '#status': 'status' },
+          ExpressionAttributeValues: { ':inactive': 'INACTIVE', ':now': new Date().toISOString() },
+        })
+      );
+    }
+
+    const items = await ddb.send(
+      new QueryCommand({
+        TableName: TABLE(),
+        KeyConditionExpression: 'merchant_id = :m',
+        ExpressionAttributeValues: { ':m': id },
+      })
+    );
+    for (const item of (items.Items ?? []) as Array<{ merchant_id: string; sk: string }>) {
+      await ddb.send(
+        new DeleteCommand({ TableName: TABLE(), Key: { merchant_id: item.merchant_id, sk: item.sk } })
+      );
+    }
+    return ok({ merchant_id: id, deleted: true, qrs_deactivated: qrs.Items?.length ?? 0 });
   } catch (err) {
     return handleError(err);
   }
