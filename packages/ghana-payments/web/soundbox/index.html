@@ -187,7 +187,7 @@ $('pair-btn').addEventListener('click', async () => {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         serial_number: $('serial').value.trim(),
-        pairing_code: $('code').value.trim(),
+        pairing_code: $('code').value.replace(/\D/g, ''),
         identity_id: identityId,
       }),
     });

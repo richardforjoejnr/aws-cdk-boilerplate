@@ -101,7 +101,10 @@ export const listHandler = async (): Promise<APIGatewayProxyResult> => {
       status: d.status,
       merchant_id: d.merchant_id ?? null,
       pending_merchant_id: d.pending_merchant_id ?? null,
-      // present + future => an unconsumed pairing code is outstanding (codes are single-use)
+      // present + future => an unconsumed pairing code is outstanding (codes are
+      // single-use; once pairing succeeds the code is deleted server-side, so a
+      // paired device never has one to show). Endpoint is admin-key gated.
+      pairing_code: d.pairing_code ?? null,
       pairing_code_expires: d.pairing_code_expires ?? null,
       last_seen_at: d.last_seen_at ?? null,
       created_at: d.created_at,
@@ -197,8 +200,19 @@ export const pairHandler = async (event: APIGatewayProxyEvent): Promise<APIGatew
         ExpressionAttributeValues: { ':s': serial },
       })
     );
-    const device = ((found.Items ?? []) as DeviceItem[]).find((d) => d.status !== 'RETIRED');
-    if (!device) return apiError(404, 'DEVICE_NOT_FOUND', 'Unknown serial number');
+    const indexed = ((found.Items ?? []) as DeviceItem[]).find((d) => d.status !== 'RETIRED');
+    if (!indexed) return apiError(404, 'DEVICE_NOT_FOUND', 'Unknown serial number');
+    const fresh = await ddb.send(
+      new GetCommand({
+        TableName: DEVICES_TABLE(),
+        Key: { device_id: indexed.device_id },
+        ConsistentRead: true,
+      })
+    );
+    const device = fresh.Item as DeviceItem | undefined;
+    if (!device || device.status === 'RETIRED') {
+      return apiError(404, 'DEVICE_NOT_FOUND', 'Unknown serial number');
+    }
     if (
       !device.pairing_code ||
       device.pairing_code !== code ||

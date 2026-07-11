@@ -193,7 +193,7 @@ function deviceChip(d) {
     const live = d.pairing_code_expires && d.pairing_code_expires > Date.now();
     if (live) {
       const mins = Math.max(1, Math.round((d.pairing_code_expires - Date.now()) / 60000));
-      return `<span class="chip accent">CODE ISSUED · ${mins}m left</span>`;
+      return `<span class="chip accent">CODE ${d.pairing_code || ''} · ${mins}m left</span>`;
     }
     return `<span class="chip danger">NEEDS NEW CODE</span> <span class="dim">codes are single-use — click Pair…</span>`;
   }
@@ -214,7 +214,7 @@ async function loadDevices() {
       <td>${d.merchant_id ? merchantName(d.merchant_id) : (d.pending_merchant_id ? `${merchantName(d.pending_merchant_id)} <span class="dim">(pending)</span>` : '—')}</td>
       <td class="dim">${d.last_seen_at ? new Date(d.last_seen_at).toLocaleTimeString() : '—'}</td>
       <td style="text-align:right; white-space:nowrap">
-        <button class="small" onclick="pairDevice('${d.device_id}','${d.serial_number}')">Pair…</button>
+        <button class="small" onclick="pairDevice('${d.device_id}','${d.serial_number}')">${d.status === 'PAIRED' || d.status === 'ACTIVE' ? 'Re-pair…' : 'Pair…'}</button>
         <button class="small secondary" onclick="testDevice('${d.device_id}')">Test</button>
         <button class="small secondary" onclick="deviceInfo('${d.device_id}','${d.serial_number}','${d.device_type}')">Info</button>
         <button class="small danger" onclick="removeDevice('${d.device_id}','${d.serial_number}')">Remove</button>
@@ -233,7 +233,11 @@ async function loadDevices() {
   }
 }
 
+let pairInFlight = false;
 window.pairDevice = async (deviceId, serial) => {
+  if (pairInFlight) return;
+  pairInFlight = true;
+  setTimeout(() => { pairInFlight = false; }, 2000);
   const device = devicesCache.find(d => d.device_id === deviceId) || {};
   const merchantId = device.pending_merchant_id || device.merchant_id || $('d-merchant').value;
   if (!merchantId) { toast('Select a merchant in the register row first'); return; }
