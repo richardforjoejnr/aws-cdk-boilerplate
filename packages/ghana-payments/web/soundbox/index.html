@@ -194,9 +194,15 @@ $('unpair-btn').addEventListener('click', () => {
   location.reload();
 });
 
-// Auto-reconnect a previously paired device (policy already attached; needs one click for audio)
+// Prefill from the merchant portal's Pair link (?serial=...&code=...)
+const qs = new URLSearchParams(location.search);
+if (qs.get('serial')) $('serial').value = qs.get('serial');
+if (qs.get('code')) $('code').value = qs.get('code');
+
+// Auto-reconnect a previously paired device (policy already attached; needs one click for
+// audio) — unless the portal sent us here to pair a specific device (?serial=...)
 const saved = localStorage.getItem('sbx_device');
-if (saved) {
+if (saved && !qs.get('serial')) {
   setBadge('paired — click to reconnect', 'accent');
   $('pair-card').innerHTML = '<h2>Reconnect</h2><p class="muted">This browser is already paired as <b>' +
     (localStorage.getItem('sbx_serial') || 'device') + '</b>.</p><button id="reconnect-btn">Reconnect &amp; enable audio</button>';

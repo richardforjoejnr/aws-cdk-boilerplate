@@ -100,6 +100,7 @@ export const listHandler = async (): Promise<APIGatewayProxyResult> => {
       firmware_version: d.firmware_version ?? null,
       status: d.status,
       merchant_id: d.merchant_id ?? null,
+      pending_merchant_id: d.pending_merchant_id ?? null,
       last_seen_at: d.last_seen_at ?? null,
       created_at: d.created_at,
     }));

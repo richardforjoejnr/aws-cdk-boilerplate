@@ -170,17 +170,20 @@ $('create-btn').addEventListener('click', async () => {
 
 let merchantsCache = [];
 
+let devicesCache = [];
+
 async function loadDevices() {
   const res = await api('/devices');
   if (!res.ok) return toast('Failed to load devices');
+  devicesCache = res.body.devices || [];
   const merchantName = id => (merchantsCache.find(m => m.merchant_id === id) || {}).display_name || id || '—';
   $('device-rows').innerHTML = (res.body.devices || [])
     .filter(d => d.status !== 'RETIRED')
     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
     .map(d => `<tr>
       <td>${d.serial_number} <span class="chip" style="font-size:.62rem">${d.device_type === 'REAL' ? '🔌 real' : '🌐 virtual'}</span></td>
-      <td><span class="chip ${{ACTIVE:'success',PAIRED:'accent',UNASSIGNED:'warning',SUSPENDED:'danger',RETIRED:'danger',OFFLINE:'danger'}[d.status]||''}">${d.status}</span></td>
-      <td>${d.merchant_id ? merchantName(d.merchant_id) : '—'}</td>
+      <td><span class="chip ${{ACTIVE:'success',PAIRED:'accent',UNASSIGNED:'warning',SUSPENDED:'danger',RETIRED:'danger',OFFLINE:'danger'}[d.status]||''}">${d.status === 'UNASSIGNED' && d.pending_merchant_id ? 'AWAITING PAIR' : d.status}</span></td>
+      <td>${d.merchant_id ? merchantName(d.merchant_id) : (d.pending_merchant_id ? `${merchantName(d.pending_merchant_id)} <span class="dim">(pending)</span>` : '—')}</td>
       <td class="dim">${d.last_seen_at ? new Date(d.last_seen_at).toLocaleTimeString() : '—'}</td>
       <td style="text-align:right; white-space:nowrap">
         <button class="small" onclick="pairDevice('${d.device_id}','${d.serial_number}')">Pair…</button>
@@ -192,21 +195,30 @@ async function loadDevices() {
 }
 
 window.pairDevice = async (deviceId, serial) => {
-  if (!merchantsCache.length) { toast('Create a merchant first'); return; }
-  const options = merchantsCache.filter(m => m.status === 'ACTIVE')
-    .map((m, i) => `${i + 1}. ${m.display_name}`).join('\n');
-  const pick = prompt(`Pair ${serial} to which merchant?\n${options}\n\nEnter number:`);
-  const merchant = merchantsCache.filter(m => m.status === 'ACTIVE')[parseInt(pick, 10) - 1];
-  if (!merchant) return;
+  const device = devicesCache.find(d => d.device_id === deviceId) || {};
+  const merchantId = device.pending_merchant_id || device.merchant_id || $('d-merchant').value;
+  if (!merchantId) { toast('Select a merchant in the register row first'); return; }
   const res = await api(`/devices/${deviceId}/pairing-code`, {
-    method: 'POST', body: JSON.stringify({ merchant_id: merchant.merchant_id }),
+    method: 'POST', body: JSON.stringify({ merchant_id: merchantId }),
   });
   if (!res.ok) return toast(res.body?.error?.message || 'Pairing code failed');
-  $('pairing-result').innerHTML =
-    `Pairing code for <b>${serial}</b> → ${merchant.display_name}: ` +
-    `<span class="chip accent" style="font-size:1rem">${res.body.pairing_code}</span> ` +
-    `(valid 10 min) — enter it on <a href="/soundbox/" target="_blank" style="color:var(--accent)">the soundbox page</a> with serial <b>${serial}</b>`;
+  showPairingBanner(serial, merchantId, res.body.pairing_code, device.device_type);
+  if (device.device_type !== 'REAL') {
+    window.open(`/soundbox/?serial=${encodeURIComponent(serial)}&code=${res.body.pairing_code}`, '_blank');
+  }
+  loadDevices();
 };
+
+function showPairingBanner(serial, merchantId, code, deviceType) {
+  const mName = (merchantsCache.find(m => m.merchant_id === merchantId) || {}).display_name || merchantId;
+  const link = `/soundbox/?serial=${encodeURIComponent(serial)}&code=${code}`;
+  $('pairing-result').innerHTML =
+    `Pairing code for <b>${serial}</b> → ${mName}: ` +
+    `<span class="chip accent" style="font-size:1rem">${code}</span> (valid 10 min) — ` +
+    (deviceType === 'REAL'
+      ? `run <code>./scripts/setup-real-device.sh dev ${serial} ${code}</code>`
+      : `<a href="${link}" target="_blank" style="color:var(--accent)">open the soundbox page (prefilled)</a> and press Pair &amp; connect`);
+}
 
 window.testDevice = async (deviceId) => {
   const res = await api(`/devices/${deviceId}/events`, {
@@ -268,15 +280,7 @@ $('d-register-btn').addEventListener('click', async () => {
     const pc = await api(`/devices/${res.body.device_id}/pairing-code`, {
       method: 'POST', body: JSON.stringify({ merchant_id: merchantId }),
     });
-    if (pc.ok) {
-      const mName = (merchantsCache.find(m => m.merchant_id === merchantId) || {}).display_name || merchantId;
-      $('pairing-result').innerHTML =
-        `Pairing code for <b>${serial}</b> → ${mName}: ` +
-        `<span class="chip accent" style="font-size:1rem">${pc.body.pairing_code}</span> ` +
-        `(valid 10 min) — ${$('d-type').value === 'REAL'
-          ? `run <code>./scripts/setup-real-device.sh dev ${serial} ${pc.body.pairing_code}</code>`
-          : `enter it on <a href="/soundbox/" target="_blank" style="color:var(--accent)">the soundbox page</a> with serial <b>${serial}</b>`}`;
-    }
+    if (pc.ok) showPairingBanner(serial, merchantId, pc.body.pairing_code, $('d-type').value);
   }
   $('d-serial').value = '';
   loadDevices();
