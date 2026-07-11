@@ -86,16 +86,22 @@ export class GhanaPaymentsFoundationStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // No TTL attribute here: DynamoDB TTL deletes the WHOLE item — pairing-code expiry
+    // is a plain attribute checked in the pair handler.
     this.devicesTable = new dynamodb.Table(this, 'DevicesTable', {
       ...tableDefaults,
       tableName: `${stage}-ghana-devices`,
       partitionKey: { name: 'device_id', type: dynamodb.AttributeType.STRING },
-      timeToLiveAttribute: 'pairing_code_expires_at',
     });
     this.devicesTable.addGlobalSecondaryIndex({
       indexName: 'GSI1',
       partitionKey: { name: 'merchant_id', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'paired_at', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+    this.devicesTable.addGlobalSecondaryIndex({
+      indexName: 'GSI2',
+      partitionKey: { name: 'serial_number', type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
     });
 

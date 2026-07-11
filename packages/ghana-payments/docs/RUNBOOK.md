@@ -142,7 +142,27 @@ Or just use the merchant portal (`$PORTAL/admin/`): create merchant → QR butto
 
 The scripted version of all of the above (used to verify Phase 2) can be re-run any time — ask the `ghana-verifier` agent, or see the checks it performs in `.claude/agents/ghana-verifier.md`.
 
-## 6. Soundbox spike page (the `http://localhost:8642` thing)
+## 5b. Soundbox devices (Phase 4 — the real flow)
+
+All in the browser: **admin portal → Soundbox devices → Register** (any serial, e.g. `SBX-0001`) → **Pair…** (pick merchant, get a 6-digit code, valid 10 min) → open **`$PORTAL/soundbox/`** (laptop with speakers) → enter serial + code → it connects and speaks. Then scan the merchant's QR with a phone and pay — the soundbox announces within ~5 s, exactly once. The **Test** button sends a spoken test announcement.
+
+Same flow via curl:
+
+```bash
+DEV_ID=$(curl -s -X POST "$PORTAL/api/v1/devices" -H "x-api-key: $API_KEY" \
+  -H 'content-type: application/json' -d '{"serial_number":"SBX-0001"}' | python3 -c 'import json,sys;print(json.load(sys.stdin)["device_id"])')
+curl -s -X POST "$PORTAL/api/v1/devices/$DEV_ID/pairing-code" -H "x-api-key: $API_KEY" \
+  -H 'content-type: application/json' -d '{"merchant_id":"mer_XXX"}'      # → {"pairing_code":"123456"}
+# the device itself then calls POST /v1/devices/pair {serial_number, pairing_code, identity_id}
+curl -s -X POST "$PORTAL/api/v1/devices/$DEV_ID/events" -H "x-api-key: $API_KEY" \
+  -H 'content-type: application/json' -d '{"event_type":"TEST_ANNOUNCEMENT"}'
+```
+
+Pairing attaches a **per-device IoT policy** to the browser's Cognito identity — the device can only touch its own `devices/{device_id}/*` topics. Heartbeats flip PAIRED→ACTIVE and update last-seen in the admin table. "Forget device" on the soundbox page clears the browser's pairing.
+
+**Cost footer:** the admin portal footer shows account month-to-date + yesterday's spend (`GET /v1/costs`, admin-keyed, SSM-cached 6h because each Cost Explorer call bills $0.01; CE data lags ~24h).
+
+## 6. Soundbox spike page (the `http://localhost:8642` thing — superseded by 5b)
 
 Throwaway Phase 0 artifact proving browser → IoT Core MQTT + speech. Full detail: `packages/ghana-payments/spike/README.md`.
 

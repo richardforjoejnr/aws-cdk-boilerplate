@@ -5,15 +5,206 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Soundbox — Ghana Payments</title>
 <link rel="stylesheet" href="/styles.css" />
+<script src="/soundbox/mqtt.min.js"></script>
 </head>
 <body>
 <div class="shell">
-  <header class="app"><span class="logo">🔊</span><h1>Soundbox Simulator</h1><span class="sub">coming in Phase 4</span></header>
-  <div class="card">
-    <div class="status-hero pending"><span class="icon">🚧</span><div class="headline">Not built yet</div></div>
-    <p class="muted" style="text-align:center">This page will pair as a virtual soundbox device and announce confirmed payments out loud (MQTT over WebSocket + speech). The Phase 0 spike proved the approach — the production version lands in Phase 4.</p>
-    <a class="btn secondary" href="/">Back to home</a>
+  <header class="app">
+    <span class="logo">🔊</span><h1>Soundbox</h1>
+    <span class="chip" id="badge">not paired</span>
+  </header>
+
+  <div id="pair-card" class="card">
+    <h2>Pair this soundbox</h2>
+    <p class="muted">Register the device and get a pairing code in the <a href="/admin/" style="color:var(--accent)">merchant portal</a>, then enter both here. Pairing also unlocks audio.</p>
+    <label>Device serial number</label>
+    <input id="serial" placeholder="SBX-0001" />
+    <label>Pairing code</label>
+    <input id="code" inputmode="numeric" placeholder="6-digit code" />
+    <div class="dim" id="pair-error" style="color:var(--danger); margin-top:.4rem"></div>
+    <button id="pair-btn">Pair &amp; connect</button>
+  </div>
+
+  <div id="device-card" class="card" style="display:none">
+    <div class="row" style="justify-content:space-between">
+      <div>
+        <div class="muted">Device</div>
+        <div class="merchant-name" id="device-serial" style="font-size:1.05rem"></div>
+        <div class="dim" id="device-id"></div>
+      </div>
+      <div style="flex:0 0 auto; text-align:right">
+        <div class="muted">Volume</div>
+        <input id="volume" type="range" min="0" max="1" step="0.1" value="1" style="width:110px" />
+      </div>
+    </div>
+    <button id="unpair-btn" class="secondary small" style="margin-top:.8rem">Forget device</button>
+  </div>
+
+  <div id="log-card" class="card" style="display:none">
+    <h2>Announcements</h2>
+    <div id="log" style="font-family:ui-monospace,monospace; font-size:.82rem"></div>
   </div>
 </div>
+
+<script>
+const $ = id => document.getElementById(id);
+const show = (id, on = true) => { $(id).style.display = on ? '' : 'none'; };
+function log(msg, cls) {
+  const d = document.createElement('div');
+  d.style.padding = '.3rem 0'; d.style.borderBottom = '1px solid var(--border)';
+  if (cls === 'announce') { d.style.color = 'var(--accent)'; d.style.fontWeight = '600'; }
+  if (cls === 'dim') d.style.color = 'var(--text-dim)';
+  d.textContent = `${new Date().toLocaleTimeString()}  ${msg}`;
+  $('log').prepend(d);
+}
+const setBadge = (text, color) => { const b = $('badge'); b.textContent = text; b.className = 'chip ' + (color || ''); };
+
+const api = (p, opts) => fetch('/api/v1' + p, opts).then(async r => ({ ok: r.ok, body: await r.json().catch(() => ({})) }));
+
+// --- Cognito unauth identity (plain fetch — no SDK needed, spike-proven) ---
+async function cognitoCall(region, target, body) {
+  const res = await fetch(`https://cognito-identity.${region}.amazonaws.com/`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-amz-json-1.1', 'x-amz-target': `AWSCognitoIdentityService.${target}` },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${target} failed: HTTP ${res.status}`);
+  return res.json();
+}
+
+// --- SigV4 presigned wss:// URL (Web Crypto, spike-proven) ---
+const enc = new TextEncoder();
+async function sha256hex(s) {
+  const h = await crypto.subtle.digest('SHA-256', enc.encode(s));
+  return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+async function hmac(key, data) {
+  const k = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return new Uint8Array(await crypto.subtle.sign('HMAC', k, enc.encode(data)));
+}
+async function signedIotUrl(endpoint, region, creds) {
+  const amzdate = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
+  const date = amzdate.slice(0, 8);
+  const scope = `${date}/${region}/iotdevicegateway/aws4_request`;
+  const query = 'X-Amz-Algorithm=AWS4-HMAC-SHA256'
+    + `&X-Amz-Credential=${encodeURIComponent(`${creds.AccessKeyId}/${scope}`)}`
+    + `&X-Amz-Date=${amzdate}&X-Amz-SignedHeaders=host`;
+  const canonical = ['GET', '/mqtt', query, `host:${endpoint}`, '', 'host', await sha256hex('')].join('\n');
+  const toSign = ['AWS4-HMAC-SHA256', amzdate, scope, await sha256hex(canonical)].join('\n');
+  let key = await hmac(enc.encode('AWS4' + creds.SecretKey), date);
+  key = await hmac(key, region); key = await hmac(key, 'iotdevicegateway'); key = await hmac(key, 'aws4_request');
+  const sig = [...await hmac(key, toSign)].map(b => b.toString(16).padStart(2, '0')).join('');
+  let url = `wss://${endpoint}/mqtt?${query}&X-Amz-Signature=${sig}`;
+  if (creds.SessionToken) url += `&X-Amz-Security-Token=${encodeURIComponent(creds.SessionToken)}`;
+  return url;
+}
+
+// --- Soundbox behaviour (mirrors ESP32 firmware §17.7 + F-3 dedupe) ---
+const seen = new Set();
+let volume = 1, client = null, device = null;
+
+function speak(text) {
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 0.95; u.volume = volume;
+  speechSynthesis.speak(u);
+}
+
+function handleMessage(topic, payload) {
+  let msg; try { msg = JSON.parse(payload.toString()); } catch { return; }
+  if (topic.endsWith('/payments') && msg.event_type === 'ANNOUNCE_PAYMENT') {
+    if (msg.payment_id && seen.has(msg.payment_id)) { log(`duplicate ${msg.payment_id} ignored`, 'dim'); return; }
+    if (msg.payment_id) seen.add(msg.payment_id);
+    log(`ANNOUNCE: ${msg.message}`, 'announce');
+    speak(msg.message);
+    client.publish(device.topics.heartbeat, JSON.stringify({ status: 'played', payment_id: msg.payment_id }), { qos: 1 });
+  } else if (topic.endsWith('/commands')) {
+    if (msg.event_type === 'TEST_ANNOUNCEMENT') { log('test announcement', 'dim'); speak('Test announcement. Soundbox is working.'); }
+    if (msg.event_type === 'SET_VOLUME' && typeof msg.volume === 'number') {
+      volume = Math.max(0, Math.min(1, msg.volume)); $('volume').value = volume;
+      log(`volume set to ${volume}`, 'dim'); speak('Volume changed');
+    }
+  }
+}
+
+async function connect(dev, cfg) {
+  device = dev;
+  const { IdentityId } = JSON.parse(localStorage.getItem('sbx_identity'));
+  const { Credentials } = await cognitoCall(cfg.region, 'GetCredentialsForIdentity', { IdentityId });
+  const url = await signedIotUrl(cfg.iot_endpoint, cfg.region, Credentials);
+  client = mqtt.connect(url, { clientId: dev.client_id, protocolVersion: 4, clean: true, reconnectPeriod: 3000 });
+  client.on('connect', () => {
+    setBadge('connected', 'success');
+    client.subscribe([dev.topics.payments, dev.topics.commands], { qos: 1 }, err =>
+      log(err ? 'subscribe failed: ' + err.message : `listening on ${dev.topics.payments}`, err ? undefined : 'dim'));
+    client.publish(dev.topics.heartbeat, JSON.stringify({ status: 'online', battery: 100 }), { qos: 1 });
+  });
+  client.on('message', handleMessage);
+  client.on('close', () => setBadge('reconnecting…', 'warning'));
+  client.on('error', e => log('mqtt error: ' + e.message));
+  setInterval(() => {
+    if (client?.connected) client.publish(dev.topics.heartbeat, JSON.stringify({ status: 'online', battery: 100 }), { qos: 1 });
+  }, 60000);
+  $('device-serial').textContent = localStorage.getItem('sbx_serial');
+  $('device-id').textContent = dev.device_id;
+  show('pair-card', false); show('device-card'); show('log-card');
+}
+
+$('pair-btn').addEventListener('click', async () => {
+  $('pair-error').textContent = '';
+  $('pair-btn').disabled = true;
+  try {
+    speechSynthesis.speak(new SpeechSynthesisUtterance('')); // user gesture unlocks audio
+    const cfgRes = await api('/soundbox/config');
+    if (!cfgRes.ok) throw new Error('config unavailable');
+    const cfg = cfgRes.body;
+
+    let idn = localStorage.getItem('sbx_identity');
+    if (!idn) {
+      const got = await cognitoCall(cfg.region, 'GetId', { IdentityPoolId: cfg.identity_pool_id });
+      localStorage.setItem('sbx_identity', JSON.stringify(got));
+      idn = JSON.stringify(got);
+    }
+    const identityId = JSON.parse(idn).IdentityId;
+
+    const res = await api('/devices/pair', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        serial_number: $('serial').value.trim(),
+        pairing_code: $('code').value.trim(),
+        identity_id: identityId,
+      }),
+    });
+    if (!res.ok) throw new Error(res.body?.error?.message || 'pairing failed');
+    localStorage.setItem('sbx_device', JSON.stringify(res.body));
+    localStorage.setItem('sbx_serial', $('serial').value.trim());
+    localStorage.setItem('sbx_config', JSON.stringify(cfg));
+    speak('Soundbox paired successfully');
+    log('paired to merchant ' + res.body.merchant_id, 'dim');
+    await connect(res.body, cfg);
+  } catch (e) {
+    $('pair-error').textContent = e.message;
+  } finally {
+    $('pair-btn').disabled = false;
+  }
+});
+
+$('volume').addEventListener('input', e => { volume = parseFloat(e.target.value); });
+$('unpair-btn').addEventListener('click', () => {
+  ['sbx_device', 'sbx_serial', 'sbx_identity', 'sbx_config'].forEach(k => localStorage.removeItem(k));
+  location.reload();
+});
+
+// Auto-reconnect a previously paired device (policy already attached; needs one click for audio)
+const saved = localStorage.getItem('sbx_device');
+if (saved) {
+  setBadge('paired — click to reconnect', 'accent');
+  $('pair-card').innerHTML = '<h2>Reconnect</h2><p class="muted">This browser is already paired as <b>' +
+    (localStorage.getItem('sbx_serial') || 'device') + '</b>.</p><button id="reconnect-btn">Reconnect &amp; enable audio</button>';
+  document.getElementById('reconnect-btn').addEventListener('click', async () => {
+    speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+    await connect(JSON.parse(saved), JSON.parse(localStorage.getItem('sbx_config')));
+  });
+}
+</script>
 </body>
 </html>

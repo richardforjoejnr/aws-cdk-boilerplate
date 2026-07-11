@@ -1,6 +1,8 @@
 import * as cdk from 'aws-cdk-lib';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
+import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as events from 'aws-cdk-lib/aws-events';
+import * as iot from 'aws-cdk-lib/aws-iot';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
@@ -55,6 +57,8 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
       QR_CODES_TABLE: foundation.qrCodesTable.tableName,
       WALLETS_TABLE: foundation.walletsTable.tableName,
       AUDIT_TABLE: foundation.auditTable.tableName,
+      DEVICES_TABLE: foundation.devicesTable.tableName,
+      ACCOUNT_ID: this.account,
       EVENT_BUS_NAME: foundation.eventBus.eventBusName,
       WEBHOOK_INBOX_BUCKET: foundation.webhookInbox.bucketName,
       MOCK_CALLBACK_QUEUE_URL: callbackQueue.queueUrl,
@@ -238,6 +242,138 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
 
     const authToken = make('auth-token', 'auth/handlers.ts', 'tokenHandler');
     v1.addResource('auth').addResource('token').addMethod('POST', integrate(authToken));
+
+    // --- Devices + soundbox (Phase 4) ---
+
+    // Cognito identity pool for soundbox devices (spike-proven, ADR-6). The unauth IAM
+    // role is broad within devices/*; the per-device IoT policy attached at pairing
+    // narrows it to that device's topics — broker-enforced identity.
+    const identityPool = new cognito.CfnIdentityPool(this, 'SoundboxIdentityPool', {
+      identityPoolName: `${stage}_ghana_soundbox`,
+      allowUnauthenticatedIdentities: true,
+    });
+    const soundboxRole = new iam.Role(this, 'SoundboxUnauthRole', {
+      assumedBy: new iam.FederatedPrincipal(
+        'cognito-identity.amazonaws.com',
+        {
+          StringEquals: { 'cognito-identity.amazonaws.com:aud': identityPool.ref },
+          'ForAnyValue:StringLike': { 'cognito-identity.amazonaws.com:amr': 'unauthenticated' },
+        },
+        'sts:AssumeRoleWithWebIdentity'
+      ),
+    });
+    soundboxRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['iot:Connect'],
+        resources: [`arn:aws:iot:${this.region}:${this.account}:client/soundbox-*`],
+      })
+    );
+    soundboxRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['iot:Subscribe'],
+        resources: [`arn:aws:iot:${this.region}:${this.account}:topicfilter/devices/*`],
+      })
+    );
+    soundboxRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['iot:Receive', 'iot:Publish'],
+        resources: [`arn:aws:iot:${this.region}:${this.account}:topic/devices/*`],
+      })
+    );
+    new cognito.CfnIdentityPoolRoleAttachment(this, 'SoundboxRoleAttachment', {
+      identityPoolId: identityPool.ref,
+      roles: { unauthenticated: soundboxRole.roleArn },
+    });
+
+    const iotPublish = new iam.PolicyStatement({
+      actions: ['iot:Publish'],
+      resources: [`arn:aws:iot:${this.region}:${this.account}:topic/devices/*`],
+    });
+    const iotDescribe = new iam.PolicyStatement({
+      actions: ['iot:DescribeEndpoint'],
+      resources: ['*'],
+    });
+
+    const deviceRegister = make('device-register', 'devices/handlers.ts', 'registerHandler');
+    const deviceList = make('device-list', 'devices/handlers.ts', 'listHandler');
+    const devicePairingCode = make('device-pairing-code', 'devices/handlers.ts', 'pairingCodeHandler');
+    const devicePair = make('device-pair', 'devices/handlers.ts', 'pairHandler');
+    const deviceCommand = make('device-command', 'devices/handlers.ts', 'commandHandler');
+    const deviceStatus = make('device-status', 'devices/handlers.ts', 'statusHandler');
+    const soundboxConfig = make('soundbox-config', 'devices/handlers.ts', 'configHandler');
+    for (const fn of [deviceRegister, deviceList, devicePairingCode, devicePair, deviceCommand, deviceStatus]) {
+      foundation.devicesTable.grantReadWriteData(fn);
+    }
+    foundation.merchantsTable.grantReadData(devicePairingCode);
+    devicePair.addToRolePolicy(
+      new iam.PolicyStatement({ actions: ['iot:CreatePolicy', 'iot:AttachPolicy'], resources: ['*'] })
+    );
+    devicePair.addToRolePolicy(iotDescribe);
+    deviceCommand.addToRolePolicy(iotPublish);
+    deviceCommand.addToRolePolicy(iotDescribe);
+    soundboxConfig.addToRolePolicy(iotDescribe);
+    soundboxConfig.addEnvironment('IDENTITY_POOL_ID', identityPool.ref);
+
+    // Device API routes (§8.4): pair + config are public (device-called), the rest admin
+    const devices = v1.addResource('devices');
+    devices.addMethod('POST', integrate(deviceRegister), adminOpts);
+    devices.addMethod('GET', integrate(deviceList), adminOpts);
+    devices.addResource('pair').addMethod('POST', integrate(devicePair));
+    const deviceById = devices.addResource('{id}');
+    deviceById.addResource('pairing-code').addMethod('POST', integrate(devicePairingCode), adminOpts);
+    deviceById.addResource('events').addMethod('POST', integrate(deviceCommand), adminOpts);
+    deviceById.addResource('status').addMethod('PATCH', integrate(deviceStatus), adminOpts);
+    v1.addResource('soundbox').addResource('config').addMethod('GET', integrate(soundboxConfig));
+
+    // Announcer: payment.confirmed -> announce-once guard -> per-device MQTT publish
+    const announcer = make('device-announcer', 'devices/announcer.ts');
+    foundation.devicesTable.grantReadData(announcer);
+    foundation.paymentsTable.grantReadWriteData(announcer);
+    announcer.addToRolePolicy(iotPublish);
+    announcer.addToRolePolicy(iotDescribe);
+    const announcerDlq = new sqs.Queue(this, 'AnnouncerDlq', {
+      queueName: `${stage}-ghana-announcer-dlq`,
+    });
+    new events.Rule(this, 'AnnouncerRule', {
+      ruleName: `${stage}-ghana-announcer`,
+      eventBus: foundation.eventBus,
+      eventPattern: { source: ['ghana.payments'], detailType: ['payment.confirmed'] },
+      targets: [
+        new targets.LambdaFunction(announcer, { deadLetterQueue: announcerDlq, retryAttempts: 3 }),
+      ],
+    });
+
+    // Cost footer: account MTD spend, SSM-cached 6h (each CE call bills $0.01)
+    const costs = make('costs', 'costs/handlers.ts');
+    costs.addEnvironment('COST_CACHE_PARAM', `/${stage}/ghana-payments/cost-cache`);
+    costs.addToRolePolicy(
+      new iam.PolicyStatement({ actions: ['ce:GetCostAndUsage'], resources: ['*'] })
+    );
+    costs.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['ssm:GetParameter', 'ssm:PutParameter'],
+        resources: [
+          `arn:aws:ssm:${this.region}:${this.account}:parameter/${stage}/ghana-payments/cost-cache`,
+        ],
+      })
+    );
+    v1.addResource('costs').addMethod('GET', integrate(costs), adminOpts);
+
+    // Heartbeats: devices/+/heartbeat -> device status/last-seen
+    const statusUpdater = make('device-status-updater', 'devices/status-updater.ts');
+    foundation.devicesTable.grantReadWriteData(statusUpdater);
+    const heartbeatRule = new iot.CfnTopicRule(this, 'HeartbeatRule', {
+      ruleName: `${stage.replace(/-/g, '_')}_ghana_heartbeat`,
+      topicRulePayload: {
+        sql: "SELECT *, topic(2) as device_id FROM 'devices/+/heartbeat'",
+        awsIotSqlVersion: '2016-03-23',
+        actions: [{ lambda: { functionArn: statusUpdater.functionArn } }],
+      },
+    });
+    statusUpdater.addPermission('IotInvoke', {
+      principal: new iam.ServicePrincipal('iot.amazonaws.com'),
+      sourceArn: heartbeatRule.attrArn,
+    });
 
     // API key + usage plan for the admin surface
     const apiKey = this.api.addApiKey('AdminApiKey', { apiKeyName: `${stage}-ghana-admin-key` });

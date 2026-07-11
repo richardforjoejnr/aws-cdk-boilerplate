@@ -50,7 +50,8 @@ All previously-open questions are now resolved in `architecture.md` §2 (ADR-1..
 - **Phase 1 (foundation):** ✅ deployed — `dev-ghana-payments-foundation` (tables, bus, inbox, SSM config)
 - **Phase 2 (payment core):** ✅ deployed (`dev-ghana-payments-api`) and verified end-to-end against live dev — SUCCESS/FAILED(+credit-back)/DUPLICATE(one confirmation)/INSUFFICIENT_FUNDS paths, manual webhook replay → `duplicate:true`, audit trail populated, DLQs empty; 13 unit tests green. TIMEOUT/sweeper path verified separately.
 - **Phase 3 (QR + portals):** ✅ deployed (`dev-ghana-payments-web`) and verified — QR API (generate/resolve/rotate/status, PNG output), payment portal `/pay/{qr_id}`, merchant portal `/admin`, all on one CloudFront domain with `/api/*` routed to API Gateway (F-4: zero CORS); full payment completed via the portal path; 18 unit tests green
-- **Phases 4–5:** not started (next: device pairing + hosted soundbox portal)
+- **Phase 4 (devices + soundbox):** ✅ deployed and verified — Device API with real §10.2 pairing (per-device IoT policies attached to Cognito identities), announcer with announce-once guard, heartbeat IoT rule (PAIRED→ACTIVE), hosted `/soundbox/` portal (MQTT-WSS + Web Speech + F-3 dedupe), admin portal device management + AWS cost footer. Headless sim verified the full D5 loop: pay → announced exactly once.
+- **Phase 5 (reporting/ops polish):** remaining — reporting endpoints, CloudWatch dashboard, DLQ alarms, budget alarm, demo runbook
 
 ## How to plan with agents
 

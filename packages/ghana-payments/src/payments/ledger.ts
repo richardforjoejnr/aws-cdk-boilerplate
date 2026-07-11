@@ -192,6 +192,25 @@ export async function expirePayment(paymentId: string): Promise<boolean> {
   return true;
 }
 
+/** Announce-once guard (ADR-4b): the soundbox speaks exactly once per payment. */
+export async function markAnnounced(paymentId: string, deviceId: string): Promise<boolean> {
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: TABLE(),
+        Key: { payment_id: paymentId, sk: 'META' },
+        UpdateExpression: 'SET announced_at = :now, announced_device_id = :device',
+        ConditionExpression: 'attribute_exists(payment_id) AND attribute_not_exists(announced_at)',
+        ExpressionAttributeValues: { ':now': new Date().toISOString(), ':device': deviceId },
+      })
+    );
+    return true;
+  } catch (err: unknown) {
+    if ((err as { name?: string }).name === 'ConditionalCheckFailedException') return false;
+    throw err;
+  }
+}
+
 /** Exactly-once guard for wallet credit-back (same pattern as announce-once, ADR-4b). */
 export async function markCreditedBack(paymentId: string): Promise<boolean> {
   try {

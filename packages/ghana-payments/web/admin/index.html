@@ -55,6 +55,20 @@
       </table>
     </div>
 
+    <div class="card">
+      <h2>Soundbox devices <button id="dev-refresh-btn" class="small secondary" style="float:right">Refresh</button></h2>
+      <div class="row">
+        <div><label>Serial number</label><input id="d-serial" placeholder="SBX-0001" /></div>
+        <div><label>Model</label><input id="d-model" placeholder="virtual-soundbox" /></div>
+        <div style="flex:0 0 auto; align-self:flex-end"><button id="d-register-btn" class="small">Register</button></div>
+      </div>
+      <table style="margin-top:1rem">
+        <thead><tr><th>Serial</th><th>Status</th><th>Merchant</th><th>Last seen</th><th style="text-align:right">Actions</th></tr></thead>
+        <tbody id="device-rows"></tbody>
+      </table>
+      <div id="pairing-result" class="dim" style="margin-top:.6rem"></div>
+    </div>
+
     <div id="qr-card" class="card" style="display:none">
       <h2>QR badge for <span id="qr-merchant"></span></h2>
       <img id="qr-img" class="qr-img" alt="QR code" />
@@ -64,6 +78,11 @@
         <button id="qr-close" class="secondary">Close</button>
       </div>
     </div>
+    <footer style="display:flex; align-items:center; gap:.6rem; padding:.8rem .2rem; border-top:1px solid var(--border); margin-top:.5rem">
+      <span class="dim">💰 AWS cost</span>
+      <span class="chip accent" id="cost-mtd">—</span>
+      <span class="dim" id="cost-detail">loading…</span>
+    </footer>
   </div>
   <div id="toast" class="toast"></div>
 </div>
@@ -87,6 +106,7 @@ async function loadMerchants() {
   const res = await api('/merchants');
   if (res.status === 403) { localStorage.removeItem('ghana_admin_key'); show('portal', false); show('key-card'); return toast('API key rejected'); }
   if (!res.ok) return toast('Failed to load merchants');
+  merchantsCache = res.body.merchants;
   $('merchant-rows').innerHTML = res.body.merchants
     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
     .map(m => `<tr>
@@ -132,6 +152,61 @@ $('create-btn').addEventListener('click', async () => {
   loadMerchants();
 });
 
+let merchantsCache = [];
+
+async function loadDevices() {
+  const res = await api('/devices');
+  if (!res.ok) return toast('Failed to load devices');
+  $('device-rows').innerHTML = (res.body.devices || [])
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+    .map(d => `<tr>
+      <td>${d.serial_number}</td>
+      <td><span class="chip ${{ACTIVE:'success',PAIRED:'accent',UNASSIGNED:'warning',SUSPENDED:'danger',RETIRED:'danger',OFFLINE:'danger'}[d.status]||''}">${d.status}</span></td>
+      <td class="dim">${d.merchant_id || '—'}</td>
+      <td class="dim">${d.last_seen_at ? new Date(d.last_seen_at).toLocaleTimeString() : '—'}</td>
+      <td style="text-align:right; white-space:nowrap">
+        <button class="small" onclick="pairDevice('${d.device_id}','${d.serial_number}')">Pair…</button>
+        <button class="small secondary" onclick="testDevice('${d.device_id}')">Test</button>
+      </td></tr>`)
+    .join('');
+}
+
+window.pairDevice = async (deviceId, serial) => {
+  if (!merchantsCache.length) { toast('Create a merchant first'); return; }
+  const options = merchantsCache.filter(m => m.status === 'ACTIVE')
+    .map((m, i) => `${i + 1}. ${m.display_name}`).join('\n');
+  const pick = prompt(`Pair ${serial} to which merchant?\n${options}\n\nEnter number:`);
+  const merchant = merchantsCache.filter(m => m.status === 'ACTIVE')[parseInt(pick, 10) - 1];
+  if (!merchant) return;
+  const res = await api(`/devices/${deviceId}/pairing-code`, {
+    method: 'POST', body: JSON.stringify({ merchant_id: merchant.merchant_id }),
+  });
+  if (!res.ok) return toast(res.body?.error?.message || 'Pairing code failed');
+  $('pairing-result').innerHTML =
+    `Pairing code for <b>${serial}</b> → ${merchant.display_name}: ` +
+    `<span class="chip accent" style="font-size:1rem">${res.body.pairing_code}</span> ` +
+    `(valid 10 min) — enter it on <a href="/soundbox/" target="_blank" style="color:var(--accent)">the soundbox page</a> with serial <b>${serial}</b>`;
+};
+
+window.testDevice = async (deviceId) => {
+  const res = await api(`/devices/${deviceId}/events`, {
+    method: 'POST', body: JSON.stringify({ event_type: 'TEST_ANNOUNCEMENT' }),
+  });
+  toast(res.ok ? 'Test announcement sent' : 'Send failed');
+};
+
+$('d-register-btn').addEventListener('click', async () => {
+  const res = await api('/devices', {
+    method: 'POST',
+    body: JSON.stringify({ serial_number: $('d-serial').value.trim(), model: $('d-model').value.trim() || 'virtual-soundbox' }),
+  });
+  if (!res.ok) return toast(res.body?.error?.message || 'Register failed');
+  $('d-serial').value = '';
+  toast(`Registered ${res.body.device_id}`);
+  loadDevices();
+});
+$('dev-refresh-btn').addEventListener('click', loadDevices);
+
 $('login-btn').addEventListener('click', async () => {
   $('login-error').textContent = '';
   $('login-btn').disabled = true;
@@ -155,7 +230,17 @@ $('save-key').addEventListener('click', () => {
 $('refresh-btn').addEventListener('click', loadMerchants);
 $('qr-close').addEventListener('click', () => show('qr-card', false));
 
-function start() { if (!KEY) return; show('key-card', false); show('portal'); loadMerchants(); }
+async function loadCosts() {
+  const res = await api('/costs');
+  if (!res.ok) { $('cost-detail').textContent = 'cost data unavailable'; return; }
+  const c = res.body;
+  $('cost-mtd').textContent = `$${c.month_to_date_usd.toFixed(2)} this month`;
+  const age = Math.round((Date.now() - Date.parse(c.fetched_at)) / 3600000);
+  $('cost-detail').textContent =
+    `yesterday $${c.yesterday_usd.toFixed(2)} · whole account (${c.month}) · CE lags ~24h · refreshed ${age < 1 ? '<1' : age}h ago`;
+}
+
+function start() { if (!KEY) return; show('key-card', false); show('portal'); loadMerchants(); loadDevices(); loadCosts(); }
 start();
 </script>
 </body>
