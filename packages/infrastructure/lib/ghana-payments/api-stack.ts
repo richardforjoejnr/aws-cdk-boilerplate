@@ -236,6 +236,9 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     // Webhook receiver (public; idempotency is the retained control — ADR-8)
     v1.addResource('webhooks').addResource('{provider}').addMethod('POST', integrate(webhook));
 
+    const authToken = make('auth-token', 'auth/handlers.ts', 'tokenHandler');
+    v1.addResource('auth').addResource('token').addMethod('POST', integrate(authToken));
+
     // API key + usage plan for the admin surface
     const apiKey = this.api.addApiKey('AdminApiKey', { apiKeyName: `${stage}-ghana-admin-key` });
     const plan = this.api.addUsagePlan('AdminUsagePlan', {
@@ -244,6 +247,25 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     });
     plan.addApiKey(apiKey);
     plan.addApiStage({ stage: this.api.deploymentStage });
+
+    // Key referenced by NAME, not keyId — an env ref to the key resource would create a
+    // circular dependency (key -> usage-plan stage -> deployment -> auth method -> lambda).
+    authToken.addEnvironment('ADMIN_API_KEY_NAME', `${stage}-ghana-admin-key`);
+    authToken.addEnvironment('ADMIN_CREDS_PARAM', `/${stage}/ghana-payments/admin/credentials`);
+    authToken.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['ssm:GetParameter'],
+        resources: [
+          `arn:aws:ssm:${this.region}:${this.account}:parameter/${stage}/ghana-payments/admin/credentials`,
+        ],
+      })
+    );
+    authToken.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['apigateway:GET'],
+        resources: [`arn:aws:apigateway:${this.region}::/apikeys`],
+      })
+    );
 
     // Mock delivery posts to the REAL public webhook URL (F-2). Built from restApiId to
     // avoid a resource cycle with the deployment stage.

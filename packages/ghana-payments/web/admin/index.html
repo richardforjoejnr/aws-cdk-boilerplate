@@ -12,12 +12,23 @@
     <span class="logo">🇬🇭</span><h1>Merchant Portal</h1><span class="sub">ops &amp; onboarding</span>
   </header>
 
-  <div id="key-card" class="card">
-    <h2>Admin API key</h2>
-    <p class="muted">Stored only in this browser (localStorage). Get it with:<br/>
-    <code class="dim">aws apigateway get-api-key --api-key &lt;AdminApiKeyId output&gt; --include-value</code></p>
-    <input id="api-key" type="password" placeholder="x-api-key value" />
-    <button id="save-key" class="small" style="margin-top:.8rem">Save key</button>
+  <div id="key-card" class="card" style="max-width:420px; margin-left:auto; margin-right:auto">
+    <h2>Sign in</h2>
+    <div id="login-form">
+      <label>Username</label>
+      <input id="login-user" autocomplete="username" placeholder="admin" />
+      <label>Password</label>
+      <input id="login-pass" type="password" autocomplete="current-password" />
+      <div class="dim" id="login-error" style="color:var(--danger); margin-top:.4rem"></div>
+      <button id="login-btn">Sign in</button>
+      <button id="show-manual" class="secondary small" style="margin-top:.6rem">Paste an API key instead</button>
+    </div>
+    <div id="manual-form" style="display:none">
+      <label>Admin API key</label>
+      <input id="api-key" type="password" placeholder="x-api-key value" />
+      <p class="dim">Fetch via CLI — see RUNBOOK §4.</p>
+      <button id="save-key" class="small" style="margin-top:.8rem">Save key</button>
+    </div>
   </div>
 
   <div id="portal" style="display:none">
@@ -121,6 +132,21 @@ $('create-btn').addEventListener('click', async () => {
   loadMerchants();
 });
 
+$('login-btn').addEventListener('click', async () => {
+  $('login-error').textContent = '';
+  $('login-btn').disabled = true;
+  const res = await fetch('/api/v1/auth/token', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username: $('login-user').value.trim(), password: $('login-pass').value }),
+  }).then(async r => ({ ok: r.ok, body: await r.json().catch(() => ({})) }));
+  $('login-btn').disabled = false;
+  if (!res.ok) { $('login-error').textContent = res.body?.error?.message || 'Sign-in failed'; return; }
+  KEY = res.body.api_key;
+  localStorage.setItem('ghana_admin_key', KEY);
+  start();
+});
+$('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') $('login-btn').click(); });
+$('show-manual').addEventListener('click', () => { show('login-form', false); show('manual-form'); });
 $('save-key').addEventListener('click', () => {
   KEY = $('api-key').value.trim();
   localStorage.setItem('ghana_admin_key', KEY);
