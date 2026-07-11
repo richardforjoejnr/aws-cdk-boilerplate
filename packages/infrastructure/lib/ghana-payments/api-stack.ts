@@ -52,6 +52,7 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
       STAGE: stage,
       PAYMENTS_TABLE: foundation.paymentsTable.tableName,
       MERCHANTS_TABLE: foundation.merchantsTable.tableName,
+      QR_CODES_TABLE: foundation.qrCodesTable.tableName,
       WALLETS_TABLE: foundation.walletsTable.tableName,
       AUDIT_TABLE: foundation.auditTable.tableName,
       EVENT_BUS_NAME: foundation.eventBus.eventBusName,
@@ -104,6 +105,16 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     const merchantStatus = make('merchant-status', 'merchants/handlers.ts', 'statusHandler');
     for (const fn of [merchantCreate, merchantList, merchantGet, merchantStatus]) {
       foundation.merchantsTable.grantReadWriteData(fn);
+    }
+
+    const qrGenerate = make('qr-generate', 'qr/handlers.ts', 'generateHandler');
+    const qrGet = make('qr-get', 'qr/handlers.ts', 'getHandler');
+    const qrResolve = make('qr-resolve', 'qr/handlers.ts', 'resolveHandler');
+    const qrRotate = make('qr-rotate', 'qr/handlers.ts', 'rotateHandler');
+    const qrStatus = make('qr-status', 'qr/handlers.ts', 'statusHandler');
+    for (const fn of [qrGenerate, qrGet, qrResolve, qrRotate, qrStatus]) {
+      foundation.qrCodesTable.grantReadWriteData(fn);
+      foundation.merchantsTable.grantReadData(fn);
     }
 
     const walletTopup = make('wallet-topup', 'wallets/handlers.ts', 'topupHandler');
@@ -201,6 +212,15 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     const merchantById = merchants.addResource('{id}');
     merchantById.addMethod('GET', integrate(merchantGet), adminOpts);
     merchantById.addResource('status').addMethod('PATCH', integrate(merchantStatus), adminOpts);
+    merchantById.addResource('qrs').addMethod('POST', integrate(qrGenerate), adminOpts);
+
+    // QR API (§8.2) — resolve is public (scanned by any phone), the rest admin
+    const qrs = v1.addResource('qrs');
+    const qrById = qrs.addResource('{qr_id}');
+    qrById.addMethod('GET', integrate(qrGet), adminOpts);
+    qrById.addResource('resolve').addMethod('GET', integrate(qrResolve));
+    qrById.addResource('rotate').addMethod('POST', integrate(qrRotate), adminOpts);
+    qrById.addResource('status').addMethod('PATCH', integrate(qrStatus), adminOpts);
 
     // Wallet API (public simulation, D7)
     const wallets = v1.addResource('wallets');

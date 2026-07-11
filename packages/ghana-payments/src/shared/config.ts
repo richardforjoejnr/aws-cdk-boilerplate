@@ -9,6 +9,8 @@ export interface MockConfig {
   callbackDelaySeconds: number;
   sweeperExpiryMinutes: number;
   activeProvider: string;
+  /** CloudFront URL, written by the web stack; QR payloads are built from it (D3). */
+  publicBaseUrl: string;
 }
 
 let cached: MockConfig | null = null;
@@ -31,6 +33,7 @@ export async function getConfig(): Promise<MockConfig> {
     callbackDelaySeconds: Number(get('mock/callback-delay-seconds', '3')),
     sweeperExpiryMinutes: Number(get('sweeper/expiry-minutes', '5')),
     activeProvider: get('provider/active', 'mock'),
+    publicBaseUrl: get('public-base-url', ''),
   };
   cachedAt = Date.now();
   return cached;

@@ -19,6 +19,7 @@ NC='\033[0m'
 GHANA_STACKS=(
   "${STAGE}-ghana-payments-foundation"
   "${STAGE}-ghana-payments-api"
+  "${STAGE}-ghana-payments-web"
 )
 
 if [ "${STAGE}" == "prod" ] || [ "${STAGE}" == "test" ]; then

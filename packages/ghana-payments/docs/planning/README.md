@@ -49,7 +49,8 @@ All previously-open questions are now resolved in `architecture.md` §2 (ADR-1..
 - **Phase 0 (spike):** ✅ complete — ADR-6 confirmed, browser spoke, dedupe verified
 - **Phase 1 (foundation):** ✅ deployed — `dev-ghana-payments-foundation` (tables, bus, inbox, SSM config)
 - **Phase 2 (payment core):** ✅ deployed (`dev-ghana-payments-api`) and verified end-to-end against live dev — SUCCESS/FAILED(+credit-back)/DUPLICATE(one confirmation)/INSUFFICIENT_FUNDS paths, manual webhook replay → `duplicate:true`, audit trail populated, DLQs empty; 13 unit tests green. TIMEOUT/sweeper path verified separately.
-- **Phases 3–5:** not started (next: QR + payment/merchant portals)
+- **Phase 3 (QR + portals):** ✅ deployed (`dev-ghana-payments-web`) and verified — QR API (generate/resolve/rotate/status, PNG output), payment portal `/pay/{qr_id}`, merchant portal `/admin`, all on one CloudFront domain with `/api/*` routed to API Gateway (F-4: zero CORS); full payment completed via the portal path; 18 unit tests green
+- **Phases 4–5:** not started (next: device pairing + hosted soundbox portal)
 
 ## How to plan with agents
 

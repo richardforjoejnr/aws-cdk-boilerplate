@@ -8,6 +8,20 @@ import { hashPii } from '../shared/pii.js';
 const TABLE = (): string => process.env.MERCHANTS_TABLE ?? '';
 const VALID_STATUSES = ['PENDING_KYC', 'ACTIVE', 'SUSPENDED', 'CLOSED'];
 
+interface MerchantItem {
+  merchant_id: string;
+  sk: 'PROFILE';
+  display_name: string;
+  phone_hash: string;
+  ghana_card_hash?: string;
+  business_category: string;
+  status: string;
+  kyc_level: string;
+  created_at: string;
+  status_reason?: string | null;
+  updated_at?: string;
+}
+
 interface CreateBody {
   display_name: string;
   phone: string;
@@ -49,7 +63,7 @@ export const listHandler = async (): Promise<APIGatewayProxyResult> => {
         ExpressionAttributeValues: { ':profile': 'PROFILE' },
       })
     );
-    const merchants = (res.Items ?? []).map((m) => ({
+    const merchants = ((res.Items ?? []) as MerchantItem[]).map((m) => ({
       merchant_id: m.merchant_id,
       display_name: m.display_name,
       business_category: m.business_category,
@@ -71,8 +85,16 @@ export const getHandler = async (event: APIGatewayProxyEvent): Promise<APIGatewa
       new GetCommand({ TableName: TABLE(), Key: { merchant_id: id, sk: 'PROFILE' } })
     );
     if (!res.Item) return apiError(404, 'MERCHANT_NOT_FOUND', 'No such merchant');
-    const { phone_hash, ghana_card_hash, ...pub } = res.Item;
-    return ok(pub);
+    const m = res.Item as MerchantItem;
+    // PII hashes stay out of API responses
+    return ok({
+      merchant_id: m.merchant_id,
+      display_name: m.display_name,
+      business_category: m.business_category,
+      status: m.status,
+      kyc_level: m.kyc_level,
+      created_at: m.created_at,
+    });
   } catch (err) {
     return handleError(err);
   }

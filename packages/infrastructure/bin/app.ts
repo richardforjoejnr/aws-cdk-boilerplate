@@ -16,6 +16,7 @@ import { BalanceBookingWebStack } from '../lib/balance-booking/web-stack.js';
 import { GhanaPaymentsFoundationStack } from '../lib/ghana-payments/foundation-stack.js';
 import { GhanaPaymentsSpikeStack } from '../lib/ghana-payments/spike-stack.js';
 import { GhanaPaymentsApiStack } from '../lib/ghana-payments/api-stack.js';
+import { GhanaPaymentsWebStack } from '../lib/ghana-payments/web-stack.js';
 
 const app = new cdk.App();
 
@@ -156,13 +157,22 @@ const ghanaFoundation = new GhanaPaymentsFoundationStack(app, `${ghanaPrefix}-fo
   isProdLike,
 });
 
-new GhanaPaymentsApiStack(app, `${ghanaPrefix}-api`, {
+const ghanaApi = new GhanaPaymentsApiStack(app, `${ghanaPrefix}-api`, {
   env,
   description: `Ghana Payments PoC payment core (API, webhook, sweeper) for ${stage}`,
   stackName: `${ghanaPrefix}-api`,
   stage,
   isProdLike,
   foundation: ghanaFoundation,
+});
+
+new GhanaPaymentsWebStack(app, `${ghanaPrefix}-web`, {
+  env,
+  description: `Ghana Payments PoC portals (CloudFront + S3 + /api routing) for ${stage}`,
+  stackName: `${ghanaPrefix}-web`,
+  stage,
+  isProdLike,
+  apiStack: ghanaApi,
 });
 
 // Phase 0 spike (throwaway) — deployed only on explicit request

@@ -42,7 +42,16 @@ STAGE=dev npx cdk deploy dev-ghana-payments-api --require-approval never
 ## 4. Find your URLs and keys
 
 ```bash
-# API base URL (the public payment API)
+# THE public URL (portals + API on one CloudFront domain — use this for everything)
+PORTAL=$(aws cloudformation describe-stacks --stack-name dev-ghana-payments-web \
+  --query "Stacks[0].Outputs[?OutputKey=='PortalUrl'].OutputValue" --output text)
+echo $PORTAL   # e.g. https://dyn4xu0k0c66y.cloudfront.net
+# $PORTAL/            landing page
+# $PORTAL/admin/      merchant portal (asks for the admin API key, stored in your browser)
+# $PORTAL/pay/{qr_id} payment portal (opened by scanning a QR)
+# $PORTAL/api/v1/...  the same API as below, same-origin (what the portals call)
+
+# API Gateway direct URL (works too; the CloudFront /api path is preferred)
 API=$(aws cloudformation describe-stacks --stack-name dev-ghana-payments-api \
   --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" --output text)
 echo $API    # e.g. https://04sqsd99vk.execute-api.us-east-1.amazonaws.com/dev/
@@ -113,6 +122,21 @@ aws s3 cp s3://$BUCKET/<key-from-above> /tmp/replay.json
 curl -s -X POST "${API}v1/webhooks/mock" -H 'content-type: application/json' -d @/tmp/replay.json
 # → {"received":true,"duplicate":true}   (no second announcement, no ledger change)
 ```
+
+### QR flows (Phase 3)
+
+```bash
+# Generate a QR badge for a merchant (admin) — returns PNG (base64) + the scannable URL
+curl -s -X POST "$PORTAL/api/v1/merchants/mer_XXX/qrs" -H "x-api-key: $API_KEY" \
+  -H 'content-type: application/json' -d '{}' \
+  | python3 -c 'import json,sys,base64;d=json.load(sys.stdin);open("qr.png","wb").write(base64.b64decode(d["png_base64"]));print(d["payload_url"])'
+# qr.png is now printable; scanning it opens $PORTAL/pay/{qr_id} on any phone
+
+curl -s "$PORTAL/api/v1/qrs/qr_XXX/resolve"                     # public: merchant name check
+curl -s -X POST "$PORTAL/api/v1/qrs/qr_XXX/rotate" -H "x-api-key: $API_KEY" -d '{}'   # compromised badge
+```
+
+Or just use the merchant portal (`$PORTAL/admin/`): create merchant → QR button → download PNG.
 
 ### Full automated end-to-end check
 

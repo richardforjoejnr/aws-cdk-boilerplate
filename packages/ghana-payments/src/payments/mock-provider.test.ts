@@ -1,7 +1,7 @@
 import { mockClient } from 'aws-sdk-client-mock';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { SSMClient, GetParametersByPathCommand } from '@aws-sdk/client-ssm';
-import { MockMomoProvider } from './mock-provider.js';
+import { MockMomoProvider, type MockCallbackBody } from './mock-provider.js';
 import { _resetConfigCache } from '../shared/config.js';
 
 const sqsMock = mockClient(SQSClient);
@@ -30,6 +30,9 @@ beforeEach(() => {
   sqsMock.on(SendMessageCommand).resolves({});
 });
 
+const sentBody = (call: { args: [{ input: { MessageBody?: string } }] }): MockCallbackBody =>
+  JSON.parse(call.args[0].input.MessageBody as string) as MockCallbackBody;
+
 const req = (amountPesewas: number) => ({
   paymentId: 'pay_1',
   merchantId: 'mer_1',
@@ -42,7 +45,7 @@ describe('MockMomoProvider amount rules (ADR-7)', () => {
     await new MockMomoProvider().initiatePayment(req(2000));
     const calls = sqsMock.commandCalls(SendMessageCommand);
     expect(calls).toHaveLength(1);
-    const body = JSON.parse(calls[0].args[0].input.MessageBody as string);
+    const body = sentBody(calls[0]);
     expect(body.status).toBe('SUCCESSFUL');
     expect(body.externalId).toBe('pay_1');
     expect(body.amount).toBe('20.00');
@@ -51,9 +54,7 @@ describe('MockMomoProvider amount rules (ADR-7)', () => {
 
   it('fail amount (1300) -> one FAILED callback with reason', async () => {
     await new MockMomoProvider().initiatePayment(req(1300));
-    const body = JSON.parse(
-      sqsMock.commandCalls(SendMessageCommand)[0].args[0].input.MessageBody as string
-    );
+    const body = sentBody(sqsMock.commandCalls(SendMessageCommand)[0]);
     expect(body.status).toBe('FAILED');
     expect(body.reason).toBeDefined();
   });
@@ -67,7 +68,7 @@ describe('MockMomoProvider amount rules (ADR-7)', () => {
     await new MockMomoProvider().initiatePayment(req(222));
     const calls = sqsMock.commandCalls(SendMessageCommand);
     expect(calls).toHaveLength(2);
-    const [a, b] = calls.map((c) => JSON.parse(c.args[0].input.MessageBody as string));
+    const [a, b] = calls.map((c) => sentBody(c));
     expect(a.financialTransactionId).toBe(b.financialTransactionId);
   });
 });

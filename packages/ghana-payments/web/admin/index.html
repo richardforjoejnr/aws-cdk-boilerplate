@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Merchant Portal — Ghana Payments</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="shell wide">
+  <header class="app">
+    <span class="logo">🇬🇭</span><h1>Merchant Portal</h1><span class="sub">ops &amp; onboarding</span>
+  </header>
+
+  <div id="key-card" class="card">
+    <h2>Admin API key</h2>
+    <p class="muted">Stored only in this browser (localStorage). Get it with:<br/>
+    <code class="dim">aws apigateway get-api-key --api-key &lt;AdminApiKeyId output&gt; --include-value</code></p>
+    <input id="api-key" type="password" placeholder="x-api-key value" />
+    <button id="save-key" class="small" style="margin-top:.8rem">Save key</button>
+  </div>
+
+  <div id="portal" style="display:none">
+    <div class="card">
+      <h2>Sign up a merchant</h2>
+      <div class="row">
+        <div><label>Display name</label><input id="m-name" placeholder="Ama Serwaa Fruits" /></div>
+        <div><label>Phone</label><input id="m-phone" placeholder="020 XXX XXXX" /></div>
+        <div><label>Category</label>
+          <select id="m-cat">
+            <option>food</option><option>fashion</option><option>electronics</option>
+            <option>transport</option><option>general</option>
+          </select>
+        </div>
+      </div>
+      <button id="create-btn" class="small" style="margin-top:1rem">Create merchant</button>
+    </div>
+
+    <div class="card">
+      <h2>Merchants <button id="refresh-btn" class="small secondary" style="float:right">Refresh</button></h2>
+      <table>
+        <thead><tr><th>Name</th><th>Category</th><th>Status</th><th>ID</th><th style="text-align:right">Actions</th></tr></thead>
+        <tbody id="merchant-rows"></tbody>
+      </table>
+    </div>
+
+    <div id="qr-card" class="card" style="display:none">
+      <h2>QR badge for <span id="qr-merchant"></span></h2>
+      <img id="qr-img" class="qr-img" alt="QR code" />
+      <p class="dim" style="text-align:center" id="qr-url"></p>
+      <div class="row">
+        <a id="qr-download" class="btn secondary" download>Download PNG</a>
+        <button id="qr-close" class="secondary">Close</button>
+      </div>
+    </div>
+  </div>
+  <div id="toast" class="toast"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const show = (id, on = true) => { $(id).style.display = on ? '' : 'none'; };
+const toast = msg => { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 3000); };
+let KEY = localStorage.getItem('ghana_admin_key') || '';
+
+const api = (p, opts = {}) => fetch('/api/v1' + p, {
+  ...opts,
+  headers: { 'x-api-key': KEY, 'content-type': 'application/json', ...(opts.headers || {}) },
+}).then(async r => ({ ok: r.ok, status: r.status, body: await r.json().catch(() => ({})) }));
+
+function chipClass(status) {
+  return { ACTIVE: 'success', SUSPENDED: 'danger', PENDING_KYC: 'warning', CLOSED: 'danger' }[status] || '';
+}
+
+async function loadMerchants() {
+  const res = await api('/merchants');
+  if (res.status === 403) { localStorage.removeItem('ghana_admin_key'); show('portal', false); show('key-card'); return toast('API key rejected'); }
+  if (!res.ok) return toast('Failed to load merchants');
+  $('merchant-rows').innerHTML = res.body.merchants
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+    .map(m => `<tr>
+      <td>${m.display_name}</td><td class="muted">${m.business_category}</td>
+      <td><span class="chip ${chipClass(m.status)}">${m.status}</span></td>
+      <td class="dim">${m.merchant_id}</td>
+      <td style="text-align:right; white-space:nowrap">
+        <button class="small" onclick="genQr('${m.merchant_id}', '${m.display_name.replace(/'/g, "\\'")}')">QR</button>
+        ${m.status === 'ACTIVE'
+          ? `<button class="small danger" onclick="setStatus('${m.merchant_id}','SUSPENDED')">Remove</button>`
+          : `<button class="small secondary" onclick="setStatus('${m.merchant_id}','ACTIVE')">Reactivate</button>`}
+      </td></tr>`)
+    .join('');
+}
+
+window.genQr = async (id, name) => {
+  const res = await api(`/merchants/${id}/qrs`, { method: 'POST', body: '{}' });
+  if (!res.ok) return toast(res.body?.error?.message || 'QR generation failed');
+  $('qr-merchant').textContent = name;
+  $('qr-img').src = 'data:image/png;base64,' + res.body.png_base64;
+  $('qr-url').textContent = res.body.payload_url;
+  $('qr-download').href = 'data:image/png;base64,' + res.body.png_base64;
+  $('qr-download').download = `qr-${name.toLowerCase().replace(/\s+/g, '-')}.png`;
+  show('qr-card');
+  $('qr-card').scrollIntoView({ behavior: 'smooth' });
+};
+
+window.setStatus = async (id, status) => {
+  const res = await api(`/merchants/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, reason: 'portal' }) });
+  res.ok ? loadMerchants() : toast('Status change failed');
+};
+
+$('create-btn').addEventListener('click', async () => {
+  const res = await api('/merchants', {
+    method: 'POST',
+    body: JSON.stringify({
+      display_name: $('m-name').value, phone: $('m-phone').value, business_category: $('m-cat').value,
+    }),
+  });
+  if (!res.ok) return toast(res.body?.error?.message || 'Create failed');
+  $('m-name').value = ''; $('m-phone').value = '';
+  toast(`Created ${res.body.merchant_id}`);
+  loadMerchants();
+});
+
+$('save-key').addEventListener('click', () => {
+  KEY = $('api-key').value.trim();
+  localStorage.setItem('ghana_admin_key', KEY);
+  start();
+});
+$('refresh-btn').addEventListener('click', loadMerchants);
+$('qr-close').addEventListener('click', () => show('qr-card', false));
+
+function start() { if (!KEY) return; show('key-card', false); show('portal'); loadMerchants(); }
+start();
+</script>
+</body>
+</html>

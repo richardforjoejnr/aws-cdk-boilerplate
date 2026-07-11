@@ -1,0 +1,109 @@
+/* Ghana Payments portals — tokens per docs/planning/ui-style.md (cloud-sandbox feel, orange primary) */
+:root {
+  --surface: #0D0D12;
+  --surface-raised: #16161E;
+  --surface-overlay: #1E1E2A;
+  --border: rgba(255,255,255,0.08);
+  --border-hover: rgba(255,255,255,0.14);
+  --text: #E8E8EC;
+  --text-muted: #8E8E9A;
+  --text-dim: #5E5E6E;
+  --accent: #F97316;
+  --accent-hover: #FB8C3C;
+  --accent-soft: rgba(249,115,22,0.15);
+  --coral: #F97C62;
+  --blue: #496BFB;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --font-sans: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh;
+  font-family: var(--font-sans);
+  background: var(--surface); color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+.shell { max-width: 480px; margin: 0 auto; padding: 1.2rem; }
+.shell.wide { max-width: 860px; }
+header.app { display: flex; align-items: center; gap: .6rem; padding: .4rem 0 1rem; }
+header.app .logo { font-size: 1.4rem; }
+header.app h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+header.app .sub { color: var(--text-dim); font-size: .75rem; margin-left: auto; }
+
+.card {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.1rem 1.2rem;
+  margin-bottom: 1rem;
+}
+.card h2 { font-size: .95rem; font-weight: 600; margin: 0 0 .8rem; }
+.muted { color: var(--text-muted); font-size: .85rem; }
+.dim { color: var(--text-dim); font-size: .75rem; }
+
+label { display: block; font-size: .78rem; color: var(--text-muted); margin: .7rem 0 .25rem; }
+input, select {
+  width: 100%; padding: .7rem .8rem;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+  font-family: var(--font-sans); font-size: 1rem;
+}
+input:focus { outline: none; border-color: var(--accent); }
+input.amount { font-size: 1.6rem; font-weight: 600; text-align: center; }
+
+button, .btn {
+  display: inline-block; width: 100%; margin-top: 1rem;
+  padding: .85rem 1.4rem; border: 0; border-radius: 8px;
+  background: var(--accent); color: #0D0D12;
+  font-family: var(--font-sans); font-size: 1.05rem; font-weight: 600;
+  cursor: pointer; text-align: center; text-decoration: none;
+}
+button:hover, .btn:hover { background: var(--accent-hover); }
+button:disabled { background: var(--surface-overlay); color: var(--text-dim); cursor: default; }
+button.secondary, .btn.secondary {
+  background: transparent; color: var(--text);
+  border: 1px solid var(--border); font-weight: 500;
+}
+button.secondary:hover { border-color: var(--border-hover); background: var(--surface-overlay); }
+button.small { width: auto; margin: 0; padding: .45rem .8rem; font-size: .8rem; }
+button.danger { background: transparent; border: 1px solid var(--danger); color: var(--danger); }
+
+.chip {
+  display: inline-block; padding: .18rem .6rem; border-radius: 999px;
+  font-size: .72rem; font-weight: 500;
+  background: var(--surface-overlay); border: 1px solid var(--border); color: var(--text-muted);
+}
+.chip.success { background: rgba(52,211,153,.12); border-color: rgba(52,211,153,.4); color: var(--success); }
+.chip.warning { background: rgba(251,191,36,.12); border-color: rgba(251,191,36,.4); color: var(--warning); }
+.chip.danger  { background: rgba(248,113,113,.12); border-color: rgba(248,113,113,.4); color: var(--danger); }
+.chip.accent  { background: var(--accent-soft); border-color: rgba(249,115,22,.4); color: var(--accent); }
+
+.status-hero { text-align: center; padding: 1.6rem 0 .8rem; }
+.status-hero .icon { font-size: 3rem; display: block; margin-bottom: .5rem; }
+.status-hero .headline { font-size: 1.15rem; font-weight: 600; }
+.status-hero.pending .headline { color: var(--warning); }
+.status-hero.success .headline { color: var(--success); }
+.status-hero.failed .headline,
+.status-hero.expired .headline { color: var(--danger); }
+.spinner {
+  width: 34px; height: 34px; margin: 0 auto .7rem;
+  border: 3px solid var(--surface-overlay); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin .9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+th { text-align: left; color: var(--text-dim); font-weight: 500; font-size: .72rem; padding: .4rem .5rem; }
+td { padding: .55rem .5rem; border-top: 1px solid var(--border); }
+tr:hover td { background: rgba(255,255,255,0.02); }
+
+.merchant-name { font-size: 1.3rem; font-weight: 600; }
+.verify-hint { color: var(--text-dim); font-size: .72rem; margin-top: .2rem; }
+.row { display: flex; gap: .6rem; align-items: center; }
+.row > * { flex: 1; }
+.qr-img { display: block; margin: .6rem auto; border-radius: 10px; background: #fff; padding: 10px; max-width: 240px; width: 100%; }
+.toast { position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%);
+  background: var(--surface-overlay); border: 1px solid var(--border); border-radius: 8px;
+  padding: .6rem 1rem; font-size: .85rem; display: none; }
