@@ -2,7 +2,7 @@ import type { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, publishEvent } from '../shared/clients.js';
 import { getConfig } from '../shared/config.js';
-import { hashPii } from '../shared/pii.js';
+import { hashPhone } from '../shared/pii.js';
 import {
   apiError,
   handleError,
@@ -31,7 +31,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     const merchantId = requireString(body.merchant_id, 'merchant_id');
     const amount = requirePesewas(body.amount_pesewas, 'amount_pesewas');
     const payerPhone = requireString(body.payer_phone, 'payer_phone');
-    const phoneHash = hashPii(payerPhone);
+    const phoneHash = hashPhone(payerPhone);
 
     const merchant = await ddb.send(
       new GetCommand({
