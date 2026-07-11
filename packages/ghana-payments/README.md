@@ -2,6 +2,8 @@
 
 AWS serverless proof-of-concept of a payment orchestration and soundbox notification platform for Ghanaian street vendors and micro-merchants.
 
+- **Code tour (how it works, what's where):** [`docs/CODE_TOUR.md`](docs/CODE_TOUR.md)
+- **Runbook (deploy/operate/destroy):** [`docs/RUNBOOK.md`](docs/RUNBOOK.md)
 - **Concept spec:** [`docs/concept.md`](docs/concept.md) (markdown; original docx alongside it)
 - **Planning artifacts:** [`docs/planning/`](docs/planning/)
 
