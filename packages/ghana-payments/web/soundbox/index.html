@@ -14,6 +14,13 @@
     <span class="chip" id="badge">not paired</span>
   </header>
 
+  <div id="reconnect-card" class="card" style="display:none">
+    <h2>Reconnect</h2>
+    <p class="muted">This browser is already paired as <b id="rc-serial"></b>.</p>
+    <button id="reconnect-btn">Reconnect &amp; enable audio</button>
+    <p class="dim">Or pair below with a new code (this replaces the saved pairing).</p>
+  </div>
+
   <div id="pair-card" class="card">
     <h2>Pair this soundbox</h2>
     <p class="muted">Register the device and get a pairing code in the <a href="/admin/" style="color:var(--accent)">merchant portal</a>, then enter both here. Pairing also unlocks audio.</p>
@@ -156,7 +163,7 @@ async function connect(dev, cfg) {
   }, 60000);
   $('device-serial').textContent = localStorage.getItem('sbx_serial');
   $('device-id').textContent = dev.device_id;
-  show('pair-card', false); show('device-card'); show('log-card');
+  show('pair-card', false); show('reconnect-card', false); show('device-card'); show('log-card');
 }
 
 $('pair-btn').addEventListener('click', async () => {
@@ -211,21 +218,29 @@ $('unpair-btn').addEventListener('click', () => {
 const qs = new URLSearchParams(location.search);
 if (qs.get('serial')) { $('serial').value = qs.get('serial'); $('code').focus(); }
 
-// Auto-reconnect a previously paired device (policy already attached; needs one click
-// for audio). A ?serial= param only forces the pairing form when it's a DIFFERENT
-// device than the one paired in this browser — refreshing the pair link of the
-// already-paired device must offer Reconnect, not demand a new (single-use) code.
-const saved = localStorage.getItem('sbx_device');
-const qsSerial = qs.get('serial');
-if (saved && (!qsSerial || qsSerial === localStorage.getItem('sbx_serial'))) {
-  setBadge('paired — click to reconnect', 'accent');
-  $('pair-card').innerHTML = '<h2>Reconnect</h2><p class="muted">This browser is already paired as <b>' +
-    (localStorage.getItem('sbx_serial') || 'device') + '</b>.</p><button id="reconnect-btn">Reconnect &amp; enable audio</button>';
-  document.getElementById('reconnect-btn').addEventListener('click', async () => {
-    speechSynthesis.speak(new SpeechSynthesisUtterance(''));
-    await connect(JSON.parse(saved), JSON.parse(localStorage.getItem('sbx_config')));
+// If this browser holds a pairing, ALSO offer one-click reconnect (no code needed).
+// The pairing form stays available regardless — pairing anew with a fresh code
+// simply replaces the saved pairing.
+const savedDevice = localStorage.getItem('sbx_device');
+if (savedDevice) {
+  $('rc-serial').textContent = localStorage.getItem('sbx_serial') || 'device';
+  show('reconnect-card');
+  setBadge('paired — not connected', 'accent');
+  if (!$('serial').value) $('serial').value = localStorage.getItem('sbx_serial') || '';
+  $('reconnect-btn').addEventListener('click', async () => {
+    $('reconnect-btn').disabled = true;
+    try {
+      speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+      await connect(JSON.parse(savedDevice), JSON.parse(localStorage.getItem('sbx_config')));
+    } catch (e) {
+      log('reconnect failed: ' + e.message + ' — pair below with a new code');
+      show('log-card');
+    } finally {
+      $('reconnect-btn').disabled = false;
+    }
   });
 }
+
 </script>
 </body>
 </html>
