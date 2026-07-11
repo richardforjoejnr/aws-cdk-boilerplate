@@ -47,6 +47,22 @@ jobs:
       - name: Make scripts executable
         run: chmod +x scripts/*.sh
 
+      - name: Seed admin sign-in credentials
+        id: creds
+        env:
+          STAGE: ${{ inputs.stage }}
+        # The merchant portal signs in with admin/<password>; store only the hash in
+        # SSM SecureString (the app reads it there). Without this the /admin/ URL in
+        # the summary would have no working login on a fresh stage.
+        run: |
+          PASSWORD="Ghana$(openssl rand -hex 6)!"
+          HASH=$(node -e "const{createHash}=require('crypto');console.log(createHash('sha256').update('ghana-poc:'+process.argv[1]).digest('hex').slice(0,32))" "$PASSWORD")
+          aws ssm put-parameter --name "/${STAGE}/ghana-payments/admin/credentials" \
+            --type SecureString --overwrite \
+            --value "{\"username\":\"admin\",\"password_hash\":\"$HASH\"}"
+          echo "::add-mask::$PASSWORD"
+          echo "password=$PASSWORD" >> "$GITHUB_OUTPUT"
+
       - name: Deploy
         id: deploy
         env:
@@ -54,3 +70,19 @@ jobs:
         # The script writes portal_url / api_url / api_key_id to GITHUB_OUTPUT and a
         # full per-deployment summary (URLs, key id) to GITHUB_STEP_SUMMARY.
         run: ./scripts/deploy-ghana-payments.sh "$STAGE"
+
+      - name: Add sign-in to summary
+        if: always() && steps.deploy.outcome == 'success'
+        env:
+          PASSWORD: ${{ steps.creds.outputs.password }}
+          PORTAL_URL: ${{ steps.deploy.outputs.portal_url }}
+        run: |
+          {
+            echo ""
+            echo "### 👤 Merchant portal sign-in"
+            echo "- **URL:** ${PORTAL_URL}/admin/"
+            echo "- **Username:** \`admin\`"
+            echo "- **Password:** \`${PASSWORD}\`"
+            echo ""
+            echo "_Store this — it is only shown here. Magic amounts: GHS 13.00 fails, 9.99 times out, else succeeds._"
+          } >> "$GITHUB_STEP_SUMMARY"
