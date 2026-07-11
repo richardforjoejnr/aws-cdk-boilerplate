@@ -346,6 +346,17 @@ export const deleteHandler = async (
     );
     if (!res.Item) return apiError(404, 'DEVICE_NOT_FOUND', 'No such device');
 
+    // Tell a live device it has been removed BEFORE revoking access, so it
+    // disconnects and clears its pairing immediately (best effort).
+    try {
+      await publishToDevice(`devices/${deviceId}/commands`, {
+        event_type: 'DEVICE_REMOVED',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.log('device-removed notify skipped', (err as Error).message);
+    }
+
     const stage = process.env.STAGE as string;
     const policyName = `${stage}-ghana-device-${deviceId}`;
     try {

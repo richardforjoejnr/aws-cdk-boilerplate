@@ -118,6 +118,15 @@ function handleMessage(topic, payload) {
     speak(msg.message);
     client.publish(device.topics.heartbeat, JSON.stringify({ status: 'played', payment_id: msg.payment_id }), { qos: 1 });
   } else if (topic.endsWith('/commands')) {
+    if (msg.event_type === 'DEVICE_REMOVED') {
+      speak('This soundbox has been removed.');
+      log('device removed from the merchant portal — unpairing', 'dim');
+      ['sbx_device', 'sbx_serial', 'sbx_identity', 'sbx_config'].forEach(k => localStorage.removeItem(k));
+      client.end(true);
+      setBadge('removed', 'danger');
+      setTimeout(() => location.replace('/soundbox/'), 2500);
+      return;
+    }
     if (msg.event_type === 'TEST_ANNOUNCEMENT') { log('test announcement', 'dim'); speak('Test announcement. Soundbox is working.'); }
     if (msg.event_type === 'SET_VOLUME' && typeof msg.volume === 'number') {
       volume = Math.max(0, Math.min(1, msg.volume)); $('volume').value = volume;
@@ -195,10 +204,10 @@ $('unpair-btn').addEventListener('click', () => {
   location.reload();
 });
 
-// Prefill from the merchant portal's Pair link (?serial=...&code=...)
+// Prefill from the merchant portal's Pair link (?serial=... only — the pairing
+// code is a secret the person enters by hand)
 const qs = new URLSearchParams(location.search);
-if (qs.get('serial')) $('serial').value = qs.get('serial');
-if (qs.get('code')) $('code').value = qs.get('code');
+if (qs.get('serial')) { $('serial').value = qs.get('serial'); $('code').focus(); }
 
 // Auto-reconnect a previously paired device (policy already attached; needs one click for
 // audio) — unless the portal sent us here to pair a specific device (?serial=...)

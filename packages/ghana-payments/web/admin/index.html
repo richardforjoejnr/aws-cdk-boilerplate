@@ -229,7 +229,7 @@ window.pairDevice = async (deviceId, serial) => {
   if (!res.ok) return toast(res.body?.error?.message || 'Pairing code failed');
   showPairingBanner(serial, merchantId, res.body.pairing_code, device.device_type, deviceId);
   if (device.device_type !== 'REAL') {
-    window.open(`/soundbox/?serial=${encodeURIComponent(serial)}&code=${res.body.pairing_code}`, '_blank');
+    window.open(`/soundbox/?serial=${encodeURIComponent(serial)}`, '_blank');
   }
   loadDevices();
 };
@@ -237,13 +237,13 @@ window.pairDevice = async (deviceId, serial) => {
 function showPairingBanner(serial, merchantId, code, deviceType, deviceId) {
   if (deviceId) lastPairing = { deviceId, serial };
   const mName = (merchantsCache.find(m => m.merchant_id === merchantId) || {}).display_name || merchantId;
-  const link = `/soundbox/?serial=${encodeURIComponent(serial)}&code=${code}`;
+  const link = `/soundbox/?serial=${encodeURIComponent(serial)}`;
   $('pairing-result').innerHTML =
     `Pairing code for <b>${serial}</b> → ${mName}: ` +
     `<span class="chip accent" style="font-size:1rem">${code}</span> (valid 10 min) — ` +
     (deviceType === 'REAL'
-      ? `run <code>./scripts/setup-real-device.sh dev ${serial} ${code}</code>`
-      : `<a href="${link}" target="_blank" style="color:var(--accent)">open the soundbox page (prefilled)</a> and press Pair &amp; connect`);
+      ? `use this code when provisioning the device — see <code>docs/DEVICE_SETUP.md</code>`
+      : `type it on <a href="${link}" target="_blank" style="color:var(--accent)">the soundbox page</a> (serial prefilled) and press Pair &amp; connect`);
 }
 
 window.testDevice = async (deviceId) => {
@@ -275,11 +275,9 @@ window.deviceInfo = async (deviceId, serial, type) => {
         <tr><td class="dim">Publish heartbeat</td><td><code>devices/${deviceId}/heartbeat</code> every 60s</td></tr>
         <tr><td class="dim">Session</td><td>clean session <b>false</b> (replays missed announcements)</td></tr>
       </table>
-      <b>Provision certificate + pair in one step</b> — generate a pairing code with <b>Pair…</b>, then run from the repo:
-      <pre style="background:#08080C; border:1px solid var(--border); border-radius:8px; padding:.6rem; overflow-x:auto">./scripts/setup-real-device.sh dev ${serial} &lt;pairing_code&gt;</pre>
-      That creates the cert, pairs it, and writes a bundle you can run on this machine or a Raspberry Pi:
-      <pre style="background:#08080C; border:1px solid var(--border); border-radius:8px; padding:.6rem; overflow-x:auto">node packages/ghana-payments/device-client/soundbox-client.mjs device-bundles/${serial}</pre>
-      Full guide (incl. ESP32 flashing): <code>packages/ghana-payments/docs/DEVICE_SETUP.md</code>`;
+      <b>To provision:</b> generate a pairing code with <b>Pair…</b>, then follow the setup guide —
+      it creates the device certificate, pairs it with the code, and produces a ready-to-run config bundle
+      for a laptop, Raspberry Pi, or ESP32: <code>packages/ghana-payments/docs/DEVICE_SETUP.md</code>`;
   }
   show('device-info');
   $('device-info').scrollIntoView({ behavior: 'smooth' });
