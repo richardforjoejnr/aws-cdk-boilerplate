@@ -66,16 +66,12 @@ jobs:
       - name: Make scripts executable
         run: chmod +x scripts/*.sh
 
-      - name: Destroy stacks
+      - name: Destroy and clean up everything
         env:
           STAGE: ${{ inputs.stage }}
+        # Script: detaches/deletes per-device IoT policies, destroys all stacks
+        # (incl. spike if present), removes runtime SSM params, then VERIFIES nothing
+        # remains — fails the job if anything is left. Writes its own step summary.
         run: |
           # CI is non-interactive; the script's prod-like prompt reads from stdin
           echo "${STAGE}" | ./scripts/destroy-ghana-payments.sh "$STAGE"
-
-      - name: Summary
-        run: |
-          echo "## 🗑️ Ghana Payments destroyed in ${{ inputs.stage }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Stacks removed:" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ inputs.stage }}-ghana-payments-foundation\`" >> $GITHUB_STEP_SUMMARY

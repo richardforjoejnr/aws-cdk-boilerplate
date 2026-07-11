@@ -31,14 +31,17 @@
       <input id="amount" class="amount" type="number" inputmode="decimal" min="0.01" step="0.01" placeholder="0.00" />
       <label for="phone">Your mobile wallet number</label>
       <input id="phone" type="tel" inputmode="tel" placeholder="024 XXX XXXX" />
-      <div class="dim" id="balance-hint" style="margin-top:.4rem"></div>
+      <div class="row" style="margin-top:.5rem; align-items:center">
+        <div class="dim" id="balance-hint">Enter your number to see your balance</div>
+        <button id="show-topup-btn" class="small secondary" style="flex:0 0 auto; display:none">+ Top up</button>
+      </div>
       <button id="pay-btn">Pay</button>
     </div>
   </div>
 
   <div id="topup" class="card" style="display:none">
-    <h2>Balance too low</h2>
-    <p class="muted">Your simulated wallet doesn't have enough funds. Top up to continue (demo money).</p>
+    <h2 id="topup-title">Top up your wallet</h2>
+    <p class="muted" id="topup-msg">Add simulated demo money to your wallet.</p>
     <div class="row">
       <input id="topup-amount" class="amount" type="number" min="1" step="0.01" placeholder="100.00" />
       <button id="topup-btn" class="small" style="flex:0 0 auto">Top up</button>
@@ -76,13 +79,29 @@ async function init() {
 }
 function invalid(msg) { show('loading', false); $('invalid-msg').textContent = msg; show('invalid'); }
 
+// Number is remembered in THIS browser only (localStorage); the server stores a hash.
 async function refreshBalance() {
   const phone = $('phone').value.replace(/\s/g, '');
-  if (!phone) return;
+  if (!phone) { $('show-topup-btn').style.display = 'none'; return; }
+  localStorage.setItem('ghana_pay_phone', phone);
   const res = await api(`/wallets/${encodeURIComponent(phone)}`);
-  if (res.ok) $('balance-hint').textContent = `Wallet balance: GHS ${(res.body.balance_pesewas / 100).toFixed(2)}`;
+  if (res.ok) {
+    $('balance-hint').textContent = `Wallet balance: GHS ${(res.body.balance_pesewas / 100).toFixed(2)}`;
+    $('show-topup-btn').style.display = '';
+  }
 }
 $('phone').addEventListener('blur', refreshBalance);
+$('phone').addEventListener('change', refreshBalance);
+$('show-topup-btn').addEventListener('click', () => {
+  $('topup-title').textContent = 'Top up your wallet';
+  $('topup-msg').textContent = 'Add simulated demo money to your wallet.';
+  show('topup');
+  $('topup').scrollIntoView({ behavior: 'smooth' });
+});
+
+// Returning customer: prefill the remembered number and show the balance right away
+const savedPhone = localStorage.getItem('ghana_pay_phone');
+if (savedPhone) { $('phone').value = savedPhone; refreshBalance(); }
 
 $('pay-btn').addEventListener('click', async () => {
   const amount = pesewas($('amount').value);
@@ -95,7 +114,13 @@ $('pay-btn').addEventListener('click', async () => {
     body: JSON.stringify({ merchant_id: merchant.merchant_id, amount_pesewas: amount, payer_phone: phone }),
   });
   $('pay-btn').disabled = false;
-  if (res.status === 402) { show('topup'); return; }
+  if (res.status === 402) {
+    $('topup-title').textContent = 'Balance too low';
+    $('topup-msg').textContent = "Your wallet doesn't have enough funds. Top up to continue (demo money).";
+    show('topup');
+    $('topup').scrollIntoView({ behavior: 'smooth' });
+    return;
+  }
   if (!res.ok) return alert(res.body?.error?.message || 'Payment failed to start');
   show('pay', false); show('topup', false); show('result');
   poll(res.body.payment_id);
@@ -104,11 +129,19 @@ $('pay-btn').addEventListener('click', async () => {
 $('topup-btn').addEventListener('click', async () => {
   const amount = pesewas($('topup-amount').value || '100');
   const phone = $('phone').value.replace(/\s/g, '');
+  if (!phone) { alert('Enter your wallet number first'); return; }
+  $('topup-btn').disabled = true;
   const res = await api(`/wallets/${encodeURIComponent(phone)}/topup`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ amount_pesewas: amount }),
   });
-  if (res.ok) { show('topup', false); refreshBalance(); }
+  $('topup-btn').disabled = false;
+  if (res.ok) {
+    $('topup-amount').value = '';
+    show('topup', false);
+    $('balance-hint').textContent = `Wallet balance: GHS ${(res.body.balance_pesewas / 100).toFixed(2)}`;
+    $('show-topup-btn').style.display = '';
+  }
 });
 
 function setHero(cls, icon, text, sub) {
@@ -118,7 +151,14 @@ function setHero(cls, icon, text, sub) {
   $('hero-icon').textContent = icon || '';
   $('hero-text').textContent = text;
   $('hero-sub').textContent = sub;
-  if (icon) $('again-btn').style.display = '';
+  if (icon) {
+    $('again-btn').style.display = '';
+    // terminal state — show the customer their updated balance
+    const phone = $('phone').value.replace(/\s/g, '');
+    if (phone) api(`/wallets/${encodeURIComponent(phone)}`).then(res => {
+      if (res.ok) $('hero-sub').textContent = sub + ` Wallet balance: GHS ${(res.body.balance_pesewas / 100).toFixed(2)}.`;
+    });
+  }
 }
 
 async function poll(paymentId) {

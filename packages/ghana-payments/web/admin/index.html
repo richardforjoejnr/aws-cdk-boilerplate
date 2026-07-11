@@ -59,14 +59,26 @@
       <h2>Soundbox devices <button id="dev-refresh-btn" class="small secondary" style="float:right">Refresh</button></h2>
       <div class="row">
         <div><label>Serial number</label><input id="d-serial" placeholder="SBX-0001" /></div>
+        <div><label>Type</label>
+          <select id="d-type"><option value="VIRTUAL">Virtual (browser)</option><option value="REAL">Real hardware</option></select>
+        </div>
         <div><label>Model</label><input id="d-model" placeholder="virtual-soundbox" /></div>
         <div style="flex:0 0 auto; align-self:flex-end"><button id="d-register-btn" class="small">Register</button></div>
+      </div>
+      <div class="row" id="real-fields" style="display:none">
+        <div><label>Firmware version</label><input id="d-firmware" placeholder="0.1.0" /></div>
+        <div><label>Notes (hardware, SIM, location…)</label><input id="d-notes" placeholder="ESP32 + I2S amp, office demo unit" /></div>
       </div>
       <table style="margin-top:1rem">
         <thead><tr><th>Serial</th><th>Status</th><th>Merchant</th><th>Last seen</th><th style="text-align:right">Actions</th></tr></thead>
         <tbody id="device-rows"></tbody>
       </table>
       <div id="pairing-result" class="dim" style="margin-top:.6rem"></div>
+      <div id="device-info" class="card" style="display:none; margin-top:.8rem; background:var(--surface-overlay)">
+        <h2 id="di-title">Device setup</h2>
+        <div id="di-body" class="muted" style="font-size:.85rem"></div>
+        <button class="small secondary" style="margin-top:.8rem" onclick="document.getElementById('device-info').style.display='none'">Close</button>
+      </div>
     </div>
 
     <div id="qr-card" class="card" style="display:none">
@@ -160,13 +172,14 @@ async function loadDevices() {
   $('device-rows').innerHTML = (res.body.devices || [])
     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
     .map(d => `<tr>
-      <td>${d.serial_number}</td>
+      <td>${d.serial_number} <span class="chip" style="font-size:.62rem">${d.device_type === 'REAL' ? '🔌 real' : '🌐 virtual'}</span></td>
       <td><span class="chip ${{ACTIVE:'success',PAIRED:'accent',UNASSIGNED:'warning',SUSPENDED:'danger',RETIRED:'danger',OFFLINE:'danger'}[d.status]||''}">${d.status}</span></td>
       <td class="dim">${d.merchant_id || '—'}</td>
       <td class="dim">${d.last_seen_at ? new Date(d.last_seen_at).toLocaleTimeString() : '—'}</td>
       <td style="text-align:right; white-space:nowrap">
         <button class="small" onclick="pairDevice('${d.device_id}','${d.serial_number}')">Pair…</button>
         <button class="small secondary" onclick="testDevice('${d.device_id}')">Test</button>
+        <button class="small secondary" onclick="deviceInfo('${d.device_id}','${d.serial_number}','${d.device_type}')">Info</button>
       </td></tr>`)
     .join('');
 }
@@ -195,10 +208,50 @@ window.testDevice = async (deviceId) => {
   toast(res.ok ? 'Test announcement sent' : 'Send failed');
 };
 
+$('d-type').addEventListener('change', () => {
+  show('real-fields', $('d-type').value === 'REAL');
+  $('d-model').placeholder = $('d-type').value === 'REAL' ? 'esp32-soundbox' : 'virtual-soundbox';
+});
+
+window.deviceInfo = async (deviceId, serial, type) => {
+  $('di-title').textContent = `${serial} — ${type === 'REAL' ? 'real device setup' : 'virtual soundbox'}`;
+  if (type !== 'REAL') {
+    $('di-body').innerHTML = `This is a browser-based soundbox. Open
+      <a href="/soundbox/" target="_blank" style="color:var(--accent)">${location.origin}/soundbox/</a>
+      on a machine with speakers, generate a pairing code with <b>Pair…</b>, and enter serial
+      <b>${serial}</b> + the code there.`;
+  } else {
+    const cfg = (await api('/soundbox/config')).body || {};
+    $('di-body').innerHTML = `A real device connects to AWS IoT Core over <b>MQTT/TLS, port 8883</b>, with an X.509 certificate. Configure it with:
+      <table style="margin:.6rem 0">
+        <tr><td class="dim">IoT endpoint</td><td><code>${cfg.iot_endpoint || '—'}</code></td></tr>
+        <tr><td class="dim">Region</td><td><code>${cfg.region || '—'}</code></td></tr>
+        <tr><td class="dim">MQTT client id</td><td><code>soundbox-${deviceId}</code></td></tr>
+        <tr><td class="dim">Subscribe (QoS 1)</td><td><code>devices/${deviceId}/payments</code>, <code>devices/${deviceId}/commands</code></td></tr>
+        <tr><td class="dim">Publish heartbeat</td><td><code>devices/${deviceId}/heartbeat</code> every 60s</td></tr>
+        <tr><td class="dim">Session</td><td>clean session <b>false</b> (replays missed announcements)</td></tr>
+      </table>
+      <b>Provision certificate + pair in one step</b> — generate a pairing code with <b>Pair…</b>, then run from the repo:
+      <pre style="background:#08080C; border:1px solid var(--border); border-radius:8px; padding:.6rem; overflow-x:auto">./scripts/setup-real-device.sh dev ${serial} &lt;pairing_code&gt;</pre>
+      That creates the cert, pairs it, and writes a bundle you can run on this machine or a Raspberry Pi:
+      <pre style="background:#08080C; border:1px solid var(--border); border-radius:8px; padding:.6rem; overflow-x:auto">node packages/ghana-payments/device-client/soundbox-client.mjs device-bundles/${serial}</pre>
+      Full guide (incl. ESP32 flashing): <code>packages/ghana-payments/docs/DEVICE_SETUP.md</code>`;
+  }
+  show('device-info');
+  $('device-info').scrollIntoView({ behavior: 'smooth' });
+};
+
 $('d-register-btn').addEventListener('click', async () => {
+  const isReal = $('d-type').value === 'REAL';
   const res = await api('/devices', {
     method: 'POST',
-    body: JSON.stringify({ serial_number: $('d-serial').value.trim(), model: $('d-model').value.trim() || 'virtual-soundbox' }),
+    body: JSON.stringify({
+      serial_number: $('d-serial').value.trim(),
+      device_type: $('d-type').value,
+      model: $('d-model').value.trim() || (isReal ? 'esp32-soundbox' : 'virtual-soundbox'),
+      ...(isReal && $('d-firmware').value.trim() ? { firmware_version: $('d-firmware').value.trim() } : {}),
+      ...(isReal && $('d-notes').value.trim() ? { notes: $('d-notes').value.trim() } : {}),
+    }),
   });
   if (!res.ok) return toast(res.body?.error?.message || 'Register failed');
   $('d-serial').value = '';

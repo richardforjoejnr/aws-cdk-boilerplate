@@ -51,4 +51,48 @@ for stack in "${GHANA_STACKS[@]}"; do
     --output table || echo -e "${RED}Could not read outputs for ${stack}${NC}"
 done
 
+# Per-deployment info (also exported for CI)
+get_output() {
+  aws cloudformation describe-stacks --stack-name "$1" \
+    --query "Stacks[0].Outputs[?OutputKey=='$2'].OutputValue" --output text 2>/dev/null
+}
+PORTAL_URL=$(get_output "${STAGE}-ghana-payments-web" PortalUrl)
+API_URL=$(get_output "${STAGE}-ghana-payments-api" ApiUrl)
+KEY_ID=$(get_output "${STAGE}-ghana-payments-api" AdminApiKeyId)
+
+echo ""
+echo "==============================================="
 echo -e "${GREEN}✓ Ghana Payments PoC deployed to ${STAGE}${NC}"
+echo "==============================================="
+echo -e "Portal (everything runs from here): ${GREEN}${PORTAL_URL}${NC}"
+echo -e "  Merchant portal:  ${PORTAL_URL}/admin/   (sign in with the admin credentials)"
+echo -e "  Soundbox:         ${PORTAL_URL}/soundbox/"
+echo -e "  Payment portal:   ${PORTAL_URL}/pay/{qr_id}  (opened by scanning a QR)"
+echo -e "API (direct):       ${API_URL}"
+echo -e "Admin API key id:   ${KEY_ID}"
+echo -e "  Fetch value:      aws apigateway get-api-key --api-key ${KEY_ID} --include-value --query value --output text"
+echo -e "Runbook:            packages/ghana-payments/docs/RUNBOOK.md"
+
+# GitHub Actions outputs + summary
+if [ -n "${GITHUB_OUTPUT:-}" ]; then
+  {
+    echo "portal_url=${PORTAL_URL}"
+    echo "api_url=${API_URL}"
+    echo "api_key_id=${KEY_ID}"
+  } >> "$GITHUB_OUTPUT"
+fi
+if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+  {
+    echo "## 🇬🇭 Ghana Payments deployed to ${STAGE}"
+    echo ""
+    echo "| What | URL / value |"
+    echo "| --- | --- |"
+    echo "| Portal | ${PORTAL_URL} |"
+    echo "| Merchant portal | ${PORTAL_URL}/admin/ |"
+    echo "| Soundbox | ${PORTAL_URL}/soundbox/ |"
+    echo "| API (direct) | ${API_URL} |"
+    echo "| Admin API key id | \`${KEY_ID}\` (fetch: \`aws apigateway get-api-key --api-key ${KEY_ID} --include-value\`) |"
+    echo ""
+    echo "Stacks: ${GHANA_STACKS[*]}"
+  } >> "$GITHUB_STEP_SUMMARY"
+fi

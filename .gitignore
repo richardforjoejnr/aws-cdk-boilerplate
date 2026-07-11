@@ -63,3 +63,5 @@ samconfig.toml
 # Claude Code
 .claude/settings.local.json
 .claude/settings.json
+# Real soundbox device credentials (created by scripts/setup-real-device.sh)
+device-bundles/

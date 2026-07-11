@@ -15,6 +15,9 @@ export interface DeviceItem {
   device_id: string;
   serial_number: string;
   model: string;
+  device_type: 'VIRTUAL' | 'REAL';
+  firmware_version?: string;
+  notes?: string;
   status: string;
   merchant_id?: string;
   pending_merchant_id?: string;
@@ -31,8 +34,15 @@ export const registerHandler = async (
   event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyResult> => {
   try {
-    const body = parseBody<{ serial_number: string; model?: string }>(event.body);
+    const body = parseBody<{
+      serial_number: string;
+      model?: string;
+      device_type?: string;
+      firmware_version?: string;
+      notes?: string;
+    }>(event.body);
     const serial = requireString(body.serial_number, 'serial_number');
+    const deviceType = body.device_type === 'REAL' ? 'REAL' : 'VIRTUAL';
     const existing = await ddb.send(
       new QueryCommand({
         TableName: DEVICES_TABLE(),
@@ -47,12 +57,18 @@ export const registerHandler = async (
     const item: DeviceItem = {
       device_id: `dev_${randomUUID().slice(0, 12)}`,
       serial_number: serial,
-      model: body.model ?? 'virtual-soundbox',
+      model: body.model ?? (deviceType === 'REAL' ? 'esp32-soundbox' : 'virtual-soundbox'),
+      device_type: deviceType,
+      ...(body.firmware_version ? { firmware_version: body.firmware_version } : {}),
+      ...(body.notes ? { notes: body.notes } : {}),
       status: 'UNASSIGNED',
       created_at: new Date().toISOString(),
     };
     await ddb.send(new PutCommand({ TableName: DEVICES_TABLE(), Item: item }));
-    return ok({ device_id: item.device_id, serial_number: serial, status: item.status }, 201);
+    return ok(
+      { device_id: item.device_id, serial_number: serial, device_type: deviceType, status: item.status },
+      201
+    );
   } catch (err) {
     return handleError(err);
   }
@@ -66,6 +82,8 @@ export const listHandler = async (): Promise<APIGatewayProxyResult> => {
       device_id: d.device_id,
       serial_number: d.serial_number,
       model: d.model,
+      device_type: d.device_type ?? 'VIRTUAL',
+      firmware_version: d.firmware_version ?? null,
       status: d.status,
       merchant_id: d.merchant_id ?? null,
       last_seen_at: d.last_seen_at ?? null,
@@ -132,14 +150,26 @@ export const pairingCodeHandler = async (
  */
 export const pairHandler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
   try {
-    const body = parseBody<{ serial_number: string; pairing_code: string; identity_id: string }>(
-      event.body
-    );
+    const body = parseBody<{
+      serial_number: string;
+      pairing_code: string;
+      identity_id?: string; // virtual device (browser, Cognito identity)
+      certificate_arn?: string; // real device (X.509 cert on port 8883)
+    }>(event.body);
     const serial = requireString(body.serial_number, 'serial_number');
     const code = requireString(body.pairing_code, 'pairing_code');
-    const identityId = requireString(body.identity_id, 'identity_id');
-    if (!/^[\w-]+:[0-9a-f-]+$/.test(identityId)) {
-      return apiError(400, 'INVALID_IDENTITY', 'identity_id is not a Cognito identity');
+    let policyTarget: string;
+    if (body.certificate_arn) {
+      if (!/^arn:aws:iot:[\w-]+:\d+:cert\/[0-9a-f]+$/.test(body.certificate_arn)) {
+        return apiError(400, 'INVALID_CERTIFICATE', 'certificate_arn is not an IoT certificate ARN');
+      }
+      policyTarget = body.certificate_arn;
+    } else {
+      const identityId = requireString(body.identity_id, 'identity_id');
+      if (!/^[\w-]+:[0-9a-f-]+$/.test(identityId)) {
+        return apiError(400, 'INVALID_IDENTITY', 'identity_id is not a Cognito identity');
+      }
+      policyTarget = identityId;
     }
 
     const found = await ddb.send(
@@ -192,7 +222,7 @@ export const pairHandler = async (event: APIGatewayProxyEvent): Promise<APIGatew
     } catch (err: unknown) {
       if ((err as { name?: string }).name !== 'ResourceAlreadyExistsException') throw err;
     }
-    await iot.send(new AttachPolicyCommand({ policyName, target: identityId }));
+    await iot.send(new AttachPolicyCommand({ policyName, target: policyTarget }));
 
     await ddb.send(
       new UpdateCommand({
@@ -205,7 +235,7 @@ export const pairHandler = async (event: APIGatewayProxyEvent): Promise<APIGatew
         ExpressionAttributeValues: {
           ':paired': 'PAIRED',
           ':mid': device.pending_merchant_id,
-          ':iid': identityId,
+          ':iid': policyTarget,
           ':now': new Date().toISOString(),
         },
       })
@@ -214,6 +244,7 @@ export const pairHandler = async (event: APIGatewayProxyEvent): Promise<APIGatew
     return ok({
       device_id: device.device_id,
       merchant_id: device.pending_merchant_id,
+      auth_mode: body.certificate_arn ? 'certificate' : 'cognito',
       client_id: `soundbox-${device.device_id}`,
       topics: {
         payments: `devices/${device.device_id}/payments`,

@@ -24,6 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: ${{ inputs.stage }}
+      url: ${{ steps.deploy.outputs.portal_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -47,13 +48,9 @@ jobs:
         run: chmod +x scripts/*.sh
 
       - name: Deploy
+        id: deploy
         env:
           STAGE: ${{ inputs.stage }}
+        # The script writes portal_url / api_url / api_key_id to GITHUB_OUTPUT and a
+        # full per-deployment summary (URLs, key id) to GITHUB_STEP_SUMMARY.
         run: ./scripts/deploy-ghana-payments.sh "$STAGE"
-
-      - name: Summary
-        run: |
-          echo "## 🇬🇭 Ghana Payments deployed to ${{ inputs.stage }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Stacks:" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ inputs.stage }}-ghana-payments-foundation\`" >> $GITHUB_STEP_SUMMARY

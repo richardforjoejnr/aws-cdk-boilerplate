@@ -162,6 +162,8 @@ Pairing attaches a **per-device IoT policy** to the browser's Cognito identity �
 
 **Cost footer:** the admin portal footer shows account month-to-date + yesterday's spend (`GET /v1/costs`, admin-keyed, SSM-cached 6h because each Cost Explorer call bills $0.01; CE data lags ~24h).
 
+**Real hardware:** to pair an actual device (laptop/Pi/ESP32, X.509 cert auth on port 8883): register it as type **Real hardware** in the portal, use the row's **Info** button for connection details, then `./scripts/setup-real-device.sh dev <serial> <pairing_code>` — full guide in [`DEVICE_SETUP.md`](DEVICE_SETUP.md). Device credential bundles land in `device-bundles/` (gitignored).
+
 ## 6. Soundbox spike page (the `http://localhost:8642` thing — superseded by 5b)
 
 Throwaway Phase 0 artifact proving browser → IoT Core MQTT + speech. Full detail: `packages/ghana-payments/spike/README.md`.
