@@ -149,12 +149,15 @@ if (deployBalanceWeb) {
 // Ghana Payments PoC — street vendor digital payment & soundbox platform
 // Design: packages/ghana-payments/docs/planning/architecture.md
 const ghanaPrefix = `${stage}-ghana-payments`;
+// PoC: only prod retains data. test/pr-* stay fully destroyable (RETAIN +
+// deletion protection on a PoC test stage just strands tables on teardown).
+const ghanaProdLike = stage === 'prod';
 const ghanaFoundation = new GhanaPaymentsFoundationStack(app, `${ghanaPrefix}-foundation`, {
   env,
   description: `Ghana Payments PoC data & event layer for ${stage}`,
   stackName: `${ghanaPrefix}-foundation`,
   stage,
-  isProdLike,
+  isProdLike: ghanaProdLike,
 });
 
 const ghanaApi = new GhanaPaymentsApiStack(app, `${ghanaPrefix}-api`, {
@@ -162,7 +165,7 @@ const ghanaApi = new GhanaPaymentsApiStack(app, `${ghanaPrefix}-api`, {
   description: `Ghana Payments PoC payment core (API, webhook, sweeper) for ${stage}`,
   stackName: `${ghanaPrefix}-api`,
   stage,
-  isProdLike,
+  isProdLike: ghanaProdLike,
   foundation: ghanaFoundation,
 });
 
@@ -171,7 +174,7 @@ new GhanaPaymentsWebStack(app, `${ghanaPrefix}-web`, {
   description: `Ghana Payments PoC portals (CloudFront + S3 + /api routing) for ${stage}`,
   stackName: `${ghanaPrefix}-web`,
   stage,
-  isProdLike,
+  isProdLike: ghanaProdLike,
   apiStack: ghanaApi,
 });
 
