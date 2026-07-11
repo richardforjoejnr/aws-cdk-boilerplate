@@ -283,11 +283,9 @@ $('d-register-btn').addEventListener('click', async () => {
 });
 
 window.removeDevice = async (deviceId, serial) => {
-  if (!confirm(`Remove ${serial}? It will stop receiving announcements.`)) return;
-  const res = await api(`/devices/${deviceId}/status`, {
-    method: 'PATCH', body: JSON.stringify({ status: 'RETIRED', reason: 'removed via portal' }),
-  });
-  res.ok ? loadDevices() : toast('Remove failed');
+  if (!confirm(`Remove ${serial}? This deletes the device and its access — the serial can then be re-registered.`)) return;
+  const res = await api(`/devices/${deviceId}`, { method: 'DELETE' });
+  res.ok ? (toast(`${serial} removed`), loadDevices()) : toast(res.body?.error?.message || 'Remove failed');
 };
 $('dev-refresh-btn').addEventListener('click', loadDevices);
 

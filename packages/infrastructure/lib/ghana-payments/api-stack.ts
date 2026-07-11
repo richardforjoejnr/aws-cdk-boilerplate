@@ -300,10 +300,17 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     const devicePair = make('device-pair', 'devices/handlers.ts', 'pairHandler');
     const deviceCommand = make('device-command', 'devices/handlers.ts', 'commandHandler');
     const deviceStatus = make('device-status', 'devices/handlers.ts', 'statusHandler');
+    const deviceDelete = make('device-delete', 'devices/handlers.ts', 'deleteHandler');
     const soundboxConfig = make('soundbox-config', 'devices/handlers.ts', 'configHandler');
-    for (const fn of [deviceRegister, deviceList, devicePairingCode, devicePair, deviceCommand, deviceStatus]) {
+    for (const fn of [deviceRegister, deviceList, devicePairingCode, devicePair, deviceCommand, deviceStatus, deviceDelete]) {
       foundation.devicesTable.grantReadWriteData(fn);
     }
+    deviceDelete.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['iot:ListTargetsForPolicy', 'iot:DetachPolicy', 'iot:DeletePolicy'],
+        resources: ['*'],
+      })
+    );
     foundation.merchantsTable.grantReadData(devicePairingCode);
     devicePair.addToRolePolicy(
       new iam.PolicyStatement({ actions: ['iot:CreatePolicy', 'iot:AttachPolicy'], resources: ['*'] })
@@ -320,6 +327,7 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     devices.addMethod('GET', integrate(deviceList), adminOpts);
     devices.addResource('pair').addMethod('POST', integrate(devicePair));
     const deviceById = devices.addResource('{id}');
+    deviceById.addMethod('DELETE', integrate(deviceDelete), adminOpts);
     deviceById.addResource('pairing-code').addMethod('POST', integrate(devicePairingCode), adminOpts);
     deviceById.addResource('events').addMethod('POST', integrate(deviceCommand), adminOpts);
     deviceById.addResource('status').addMethod('PATCH', integrate(deviceStatus), adminOpts);

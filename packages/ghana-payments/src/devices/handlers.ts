@@ -1,6 +1,19 @@
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
-import { GetCommand, PutCommand, QueryCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { AttachPolicyCommand, CreatePolicyCommand } from '@aws-sdk/client-iot';
+import {
+  DeleteCommand,
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+  ScanCommand,
+  UpdateCommand,
+} from '@aws-sdk/lib-dynamodb';
+import {
+  AttachPolicyCommand,
+  CreatePolicyCommand,
+  DeletePolicyCommand,
+  DetachPolicyCommand,
+  ListTargetsForPolicyCommand,
+} from '@aws-sdk/client-iot';
 import { randomInt, randomUUID } from 'node:crypto';
 import { ddb } from '../shared/clients.js';
 import { iot, getIotEndpoint, publishToDevice } from '../shared/iot.js';
@@ -51,7 +64,8 @@ export const registerHandler = async (
         ExpressionAttributeValues: { ':s': serial },
       })
     );
-    if (existing.Items?.length) {
+    // RETIRED leftovers don't block re-registration (Remove = delete, but belt-and-braces)
+    if (((existing.Items ?? []) as DeviceItem[]).some((d) => d.status !== 'RETIRED')) {
       return apiError(409, 'SERIAL_EXISTS', 'A device with this serial number is already registered');
     }
     const item: DeviceItem = {
@@ -180,7 +194,7 @@ export const pairHandler = async (event: APIGatewayProxyEvent): Promise<APIGatew
         ExpressionAttributeValues: { ':s': serial },
       })
     );
-    const device = found.Items?.[0] as DeviceItem | undefined;
+    const device = ((found.Items ?? []) as DeviceItem[]).find((d) => d.status !== 'RETIRED');
     if (!device) return apiError(404, 'DEVICE_NOT_FOUND', 'Unknown serial number');
     if (
       !device.pairing_code ||
@@ -309,6 +323,44 @@ export const statusHandler = async (
     if ((err as { name?: string }).name === 'ConditionalCheckFailedException') {
       return apiError(404, 'DEVICE_NOT_FOUND', 'No such device');
     }
+    return handleError(err);
+  }
+};
+
+/**
+ * DELETE /v1/devices/{id} — remove a device for real (admin): detaches and deletes
+ * its per-device IoT policy (created at pairing, not CFN-managed), then deletes the
+ * item so the serial can be registered again.
+ */
+export const deleteHandler = async (
+  event: APIGatewayProxyEvent
+): Promise<APIGatewayProxyResult> => {
+  try {
+    const deviceId = event.pathParameters?.id;
+    if (!deviceId) return apiError(400, 'MISSING_ID', 'device id required');
+    const res = await ddb.send(
+      new GetCommand({ TableName: DEVICES_TABLE(), Key: { device_id: deviceId } })
+    );
+    if (!res.Item) return apiError(404, 'DEVICE_NOT_FOUND', 'No such device');
+
+    const stage = process.env.STAGE as string;
+    const policyName = `${stage}-ghana-device-${deviceId}`;
+    try {
+      const targets = await iot.send(new ListTargetsForPolicyCommand({ policyName }));
+      for (const target of targets.targets ?? []) {
+        await iot.send(new DetachPolicyCommand({ policyName, target }));
+      }
+      await iot.send(new DeletePolicyCommand({ policyName }));
+    } catch (err: unknown) {
+      // never paired -> no policy; anything else shouldn't block removal of a demo device
+      if ((err as { name?: string }).name !== 'ResourceNotFoundException') {
+        console.error('IoT policy cleanup failed (continuing with delete)', err);
+      }
+    }
+
+    await ddb.send(new DeleteCommand({ TableName: DEVICES_TABLE(), Key: { device_id: deviceId } }));
+    return ok({ device_id: deviceId, deleted: true });
+  } catch (err) {
     return handleError(err);
   }
 };
