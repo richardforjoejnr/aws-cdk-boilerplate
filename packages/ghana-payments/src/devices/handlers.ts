@@ -132,6 +132,28 @@ export const pairingCodeHandler = async (
       return apiError(404, 'MERCHANT_NOT_FOUND', 'Merchant missing or not ACTIVE');
     }
 
+    // Idempotent within the validity window: if a still-valid unconsumed code already
+    // exists for this same merchant, return IT rather than minting a new one.
+    // Otherwise two near-simultaneous calls (register auto-issues a code, then "Pair…"
+    // issues another) invalidate each other — the user types the first code and it
+    // fails, retypes the second and it works. Strongly consistent read required.
+    const current = await ddb.send(
+      new GetCommand({ TableName: DEVICES_TABLE(), Key: { device_id: deviceId }, ConsistentRead: true })
+    );
+    const dev = current.Item as DeviceItem | undefined;
+    if (
+      dev?.pairing_code &&
+      dev.pending_merchant_id === merchantId &&
+      dev.pairing_code_expires &&
+      dev.pairing_code_expires > Date.now()
+    ) {
+      return ok({
+        device_id: deviceId,
+        pairing_code: dev.pairing_code,
+        expires_in_seconds: Math.round((dev.pairing_code_expires - Date.now()) / 1000),
+      });
+    }
+
     const code = String(randomInt(100000, 999999));
     try {
       await ddb.send(

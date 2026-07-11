@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.build.json",
     "watch": "tsc -p tsconfig.build.json -w",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest --passWithNoTests",
+    "test:integration": "node test/integration/run.mjs",
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {
