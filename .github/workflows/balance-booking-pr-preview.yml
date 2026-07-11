@@ -8,11 +8,14 @@ on:
       - 'packages/balance-booking-web/**'
       - 'packages/functions/src/balance-booking/**'
       - 'packages/infrastructure/lib/balance-booking/**'
-      - 'packages/infrastructure/bin/app.ts'
+      # bin/app.ts deliberately NOT listed: it's shared, so every new project added
+      # to the CDK app would otherwise trigger a balance preview forever
       - 'scripts/configure-balance-webapp.sh'
       - 'scripts/deploy-balance-booking.sh'
       - 'scripts/destroy-balance-booking.sh'
-      - '.github/workflows/balance-booking-*.yml'
+      # NOT self-referencing: listing balance-booking-*.yml here made any PR that
+      # edits this workflow (e.g. tightening these very filters) trigger balance
+      # previews on every push. Workflow changes can be preview-tested manually.
 
 permissions:
   id-token: write

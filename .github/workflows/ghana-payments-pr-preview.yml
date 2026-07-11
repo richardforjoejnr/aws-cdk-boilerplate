@@ -1,0 +1,153 @@
+name: Ghana Payments — PR Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches:
+      - main
+      - develop
+    paths:
+      - 'packages/ghana-payments/**'
+      - 'packages/infrastructure/lib/ghana-payments/**'
+      - 'scripts/deploy-ghana-payments.sh'
+      - 'scripts/destroy-ghana-payments.sh'
+      - '.github/workflows/ghana-payments-*.yml'
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+# Serialize runs per PR — rapid pushes queue instead of racing CloudFormation
+concurrency:
+  group: ghana-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '20'
+  AWS_REGION: 'us-east-1'
+
+jobs:
+  deploy-preview:
+    name: Deploy Ghana Payments preview
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh
+
+      - name: Seed preview admin credentials
+        id: creds
+        env:
+          STAGE: pr-${{ github.event.pull_request.number }}
+        run: |
+          PASSWORD="Preview$(openssl rand -hex 6)!"
+          HASH=$(node -e "const{createHash}=require('crypto');console.log(createHash('sha256').update('ghana-poc:'+process.argv[1]).digest('hex').slice(0,32))" "$PASSWORD")
+          aws ssm put-parameter --name "/${STAGE}/ghana-payments/admin/credentials" \
+            --type SecureString --overwrite \
+            --value "{\"username\":\"admin\",\"password_hash\":\"$HASH\"}"
+          echo "password=$PASSWORD" >> $GITHUB_OUTPUT
+
+      - name: Deploy
+        id: deploy
+        env:
+          STAGE: pr-${{ github.event.pull_request.number }}
+        run: ./scripts/deploy-ghana-payments.sh "$STAGE"
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        env:
+          PORTAL_URL: ${{ steps.deploy.outputs.portal_url }}
+          ADMIN_PASSWORD: ${{ steps.creds.outputs.password }}
+        with:
+          script: |
+            const portal = process.env.PORTAL_URL;
+            const body = [
+              '## 🇬🇭 Ghana Payments preview deployed',
+              `**Environment:** pr-${context.issue.number}`,
+              '',
+              `**Portal:** ${portal}`,
+              `- Merchant portal: ${portal}/admin/ — sign in with \`admin\` / \`${process.env.ADMIN_PASSWORD}\` (preview only)`,
+              `- Soundbox: ${portal}/soundbox/`,
+              `- Payment page: scan a QR generated in the merchant portal (opens \`${portal}/pay/{qr_id}\`)`,
+              '',
+              '**Demo flow:** create a merchant → generate + scan its QR → top up the wallet on the pay page → pay. ',
+              'Pair a soundbox (register device → Pair… → enter the code) to hear payments announced.',
+              '',
+              '**Magic amounts (GHS):** `13.00` fails · `9.99` times out + refunds after 5 min · `2.22` duplicate callback (announced once) · anything else succeeds.',
+              '',
+              '_This environment is destroyed automatically when the PR is merged or closed._',
+            ].join('\n');
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.includes('Ghana Payments preview deployed'));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body,
+              });
+            }
+
+  destroy-preview:
+    name: Destroy Ghana Payments preview
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh
+
+      - name: Destroy and clean up everything
+        env:
+          STAGE: pr-${{ github.event.pull_request.number }}
+        # Detaches per-device IoT policies, destroys the stacks, removes SSM params
+        # (incl. the preview admin credentials), then verifies nothing remains.
+        run: echo "$STAGE" | ./scripts/destroy-ghana-payments.sh "$STAGE"
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number,
+              body: '🗑️ Ghana Payments preview environment `pr-' + context.issue.number + '` destroyed and verified clean.',
+            });

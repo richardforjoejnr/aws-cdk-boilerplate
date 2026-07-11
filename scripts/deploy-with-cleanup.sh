@@ -94,12 +94,16 @@ BOOTSTRAP_REGION=${AWS_REGION:-us-east-1}
 npx cdk bootstrap aws://${ACCOUNT_ID}/${BOOTSTRAP_REGION} --require-approval never 2>&1 || echo "Bootstrap already exists or continuing anyway"
 echo -e "${GREEN}✓ CDK bootstrap complete${NC}\n"
 
+# STACK_SELECTOR (env, optional): glob limiting which stacks deploy, e.g.
+# "pr-15-aws-boilerplate-*" so PR previews don't deploy every project's stacks.
+# Defaults to --all (previous behaviour).
+SELECTOR="${STACK_SELECTOR:---all}"
 if [[ "$DEPLOY_WEBAPP" == "--webapp" ]]; then
-    echo -e "${YELLOW}Deploying with WebApp...${NC}"
-    STAGE=$STAGE DEPLOY_WEBAPP=true npx cdk deploy --all --require-approval never
+    echo -e "${YELLOW}Deploying with WebApp (stacks: ${SELECTOR})...${NC}"
+    STAGE=$STAGE DEPLOY_WEBAPP=true npx cdk deploy "$SELECTOR" --require-approval never
 else
-    echo -e "${YELLOW}Deploying core infrastructure only...${NC}"
-    STAGE=$STAGE npx cdk deploy --all --require-approval never
+    echo -e "${YELLOW}Deploying core infrastructure only (stacks: ${SELECTOR})...${NC}"
+    STAGE=$STAGE npx cdk deploy "$SELECTOR" --require-approval never
 fi
 
 if [ $? -ne 0 ]; then

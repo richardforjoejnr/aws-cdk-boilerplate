@@ -1,0 +1,56 @@
+name: Ghana Payments — Manual Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: 'Environment to deploy to'
+        required: true
+        type: choice
+        options: [dev, test, prod]
+        default: dev
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  NODE_VERSION: '20'
+  AWS_REGION: 'us-east-1'
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.stage }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.stage }}
+      url: ${{ steps.deploy.outputs.portal_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh
+
+      - name: Deploy
+        id: deploy
+        env:
+          STAGE: ${{ inputs.stage }}
+        # The script writes portal_url / api_url / api_key_id to GITHUB_OUTPUT and a
+        # full per-deployment summary (URLs, key id) to GITHUB_STEP_SUMMARY.
+        run: ./scripts/deploy-ghana-payments.sh "$STAGE"

@@ -6,11 +6,33 @@ on:
     branches:
       - main
       - develop
+    # Core boilerplate preview only. Balance Booking and Ghana Payments have their
+    # own path-scoped preview pipelines — changes touching only those projects
+    # must not deploy (or comment about) the core stacks.
+    paths-ignore:
+      - 'packages/ghana-payments/**'
+      - 'packages/infrastructure/lib/ghana-payments/**'
+      - 'packages/balance-booking-web/**'
+      - 'packages/functions/src/balance-booking/**'
+      - 'packages/infrastructure/lib/balance-booking/**'
+      - 'scripts/*ghana*'
+      - 'scripts/*balance*'
+      - 'scripts/setup-real-device.sh'
+      - '.github/workflows/ghana-payments-*.yml'
+      - '.github/workflows/balance-booking-*.yml'
+      - 'packages/ghana-payments/docs/**'
 
 permissions:
   id-token: write
   contents: read
   pull-requests: write  # For commenting on PRs
+
+# One run per PR at a time: rapid pushes queue instead of racing CloudFormation
+# ("stack is in UPDATE_IN_PROGRESS and can not be updated"). Never cancel a run
+# mid-deploy — a killed CDK deploy leaves stacks stuck in *_IN_PROGRESS anyway.
+concurrency:
+  group: pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
 
 env:
   NODE_VERSION: '20'
@@ -143,6 +165,8 @@ jobs:
         id: deploy
         env:
           STAGE: ${{ steps.env-name.outputs.env_name }}
+          # Core stacks only — other projects' previews deploy their own stacks
+          STACK_SELECTOR: ${{ steps.env-name.outputs.env_name }}-aws-boilerplate-*
         run: |
           # Deploy using smart deployment script
           ./scripts/deploy-with-cleanup.sh $STAGE --webapp
@@ -306,9 +330,10 @@ jobs:
           if [ -f "scripts/destroy-environment.sh" ]; then
             ./scripts/destroy-environment.sh $STAGE
           else
-            # Fallback to manual destruction
+            # Fallback to manual destruction (core stacks only — other projects'
+            # previews destroy their own stacks via their own pipelines)
             cd packages/infrastructure
-            STAGE=$STAGE npx cdk destroy --all --force
+            STAGE=$STAGE npx cdk destroy "$STAGE-aws-boilerplate-*" --force
           fi
 
       - name: Cleanup orphaned resources

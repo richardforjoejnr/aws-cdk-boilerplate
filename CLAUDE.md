@@ -498,3 +498,4 @@ Authentication is configured using IAM access keys for both local development an
 - `AWS_AUTHENTICATION_GUIDE.md` - Complete AWS authentication and IAM guide
 - `scripts/README.md` - Deployment scripts documentation
 - `packages/infrastructure/lib/` - CDK stack implementation details
+- `packages/ghana-payments/docs/concept.md` - Ghana street vendor digital payments & soundbox platform spec (PoC in planning; see `packages/ghana-payments/CLAUDE.md`)

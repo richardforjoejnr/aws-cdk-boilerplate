@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pay — Ghana Payments</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="shell">
+  <header class="app">
+    <span class="logo">🇬🇭</span><h1>Ghana Payments</h1><span class="sub">secure vendor payment</span>
+  </header>
+
+  <div id="loading" class="card"><div class="spinner"></div><p class="muted" style="text-align:center">Checking QR code…</p></div>
+
+  <div id="invalid" class="card" style="display:none">
+    <div class="status-hero failed"><span class="icon">🚫</span><div class="headline" id="invalid-msg">QR code not recognized</div></div>
+    <p class="muted" style="text-align:center">Do not pay. Ask the vendor for a valid QR badge.</p>
+  </div>
+
+  <div id="pay" style="display:none">
+    <div class="card">
+      <div class="muted">You are paying</div>
+      <div class="merchant-name" id="merchant-name"></div>
+      <span class="chip accent" id="merchant-cat"></span>
+      <div class="verify-hint">⚠️ Check this name matches the vendor's badge before paying</div>
+    </div>
+    <div class="card">
+      <label for="amount">Amount (GHS)</label>
+      <input id="amount" class="amount" type="number" inputmode="decimal" min="0.01" step="0.01" placeholder="0.00" />
+      <label for="phone">Your mobile wallet number</label>
+      <input id="phone" type="tel" inputmode="tel" placeholder="024 XXX XXXX" />
+      <div class="row" style="margin-top:.5rem; align-items:center">
+        <div class="dim" id="balance-hint">Enter your number to see your balance</div>
+        <button id="show-topup-btn" class="small secondary" style="flex:0 0 auto; display:none">+ Top up</button>
+      </div>
+      <button id="pay-btn">Pay</button>
+    </div>
+  </div>
+
+  <div id="topup" class="card" style="display:none">
+    <h2 id="topup-title">Top up your wallet</h2>
+    <p class="muted" id="topup-msg">Add simulated demo money to your wallet.</p>
+    <div class="row">
+      <input id="topup-amount" class="amount" type="number" min="1" step="0.01" placeholder="100.00" />
+      <button id="topup-btn" class="small" style="flex:0 0 auto">Top up</button>
+    </div>
+  </div>
+
+  <div id="result" class="card" style="display:none">
+    <div class="status-hero pending" id="hero">
+      <div class="spinner" id="hero-spinner"></div>
+      <span class="icon" id="hero-icon" style="display:none"></span>
+      <div class="headline" id="hero-text">Waiting for confirmation…</div>
+    </div>
+    <p class="muted" style="text-align:center" id="hero-sub">Authorise on your phone. The vendor's soundbox will announce the payment.</p>
+    <button id="again-btn" class="secondary" style="display:none">Make another payment</button>
+  </div>
+</div>
+
+<script>
+const api = (p, opts) => fetch('/api/v1' + p, opts).then(async r => ({ ok: r.ok, status: r.status, body: await r.json().catch(() => ({})) }));
+const $ = id => document.getElementById(id);
+const show = (id, on = true) => { $(id).style.display = on ? '' : 'none'; };
+const qrId = location.pathname.split('/pay/')[1]?.replace(/\/$/, '');
+const pesewas = ghs => Math.round(parseFloat(ghs) * 100);
+let merchant = null;
+
+async function init() {
+  if (!qrId) return invalid('No QR code in the link');
+  const res = await api(`/qrs/${qrId}/resolve`);
+  show('loading', false);
+  if (!res.ok) return invalid(res.body?.error?.message || 'QR code not recognized');
+  merchant = res.body;
+  $('merchant-name').textContent = merchant.merchant_name;
+  $('merchant-cat').textContent = merchant.business_category;
+  show('pay');
+}
+function invalid(msg) { show('loading', false); $('invalid-msg').textContent = msg; show('invalid'); }
+
+// Number is remembered in THIS browser only (localStorage); the server stores a hash.
+async function refreshBalance() {
+  const phone = $('phone').value.replace(/\s/g, '');
+  if (!phone) { $('show-topup-btn').style.display = 'none'; return; }
+  localStorage.setItem('ghana_pay_phone', phone);
+  const res = await api(`/wallets/${encodeURIComponent(phone)}`);
+  if (res.ok) {
+    $('balance-hint').textContent = `Wallet balance: GHS ${(res.body.balance_pesewas / 100).toFixed(2)}`;
+    $('show-topup-btn').style.display = '';
+  }
+}
+$('phone').addEventListener('blur', refreshBalance);
+$('phone').addEventListener('change', refreshBalance);
+$('show-topup-btn').addEventListener('click', () => {
+  $('topup-title').textContent = 'Top up your wallet';
+  $('topup-msg').textContent = 'Add simulated demo money to your wallet.';
+  show('topup');
+  $('topup').scrollIntoView({ behavior: 'smooth' });
+});
+
+// Returning customer: prefill the remembered number and show the balance right away
+const savedPhone = localStorage.getItem('ghana_pay_phone');
+if (savedPhone) { $('phone').value = savedPhone; refreshBalance(); }
+
+$('pay-btn').addEventListener('click', async () => {
+  const amount = pesewas($('amount').value);
+  const phone = $('phone').value.replace(/\s/g, '');
+  if (!amount || amount <= 0) return alert('Enter an amount');
+  if (!phone) return alert('Enter your wallet number');
+  $('pay-btn').disabled = true;
+  const res = await api('/payments', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ merchant_id: merchant.merchant_id, amount_pesewas: amount, payer_phone: phone }),
+  });
+  $('pay-btn').disabled = false;
+  if (res.status === 402) {
+    $('topup-title').textContent = 'Balance too low';
+    $('topup-msg').textContent = "Your wallet doesn't have enough funds. Top up to continue (demo money).";
+    show('topup');
+    $('topup').scrollIntoView({ behavior: 'smooth' });
+    return;
+  }
+  if (!res.ok) return alert(res.body?.error?.message || 'Payment failed to start');
+  show('pay', false); show('topup', false); show('result');
+  poll(res.body.payment_id);
+});
+
+$('topup-btn').addEventListener('click', async () => {
+  const amount = pesewas($('topup-amount').value || '100');
+  const phone = $('phone').value.replace(/\s/g, '');
+  if (!phone) { alert('Enter your wallet number first'); return; }
+  $('topup-btn').disabled = true;
+  const res = await api(`/wallets/${encodeURIComponent(phone)}/topup`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ amount_pesewas: amount }),
+  });
+  $('topup-btn').disabled = false;
+  if (res.ok) {
+    $('topup-amount').value = '';
+    show('topup', false);
+    $('balance-hint').textContent = `Wallet balance: GHS ${(res.body.balance_pesewas / 100).toFixed(2)}`;
+    $('show-topup-btn').style.display = '';
+  }
+});
+
+function setHero(cls, icon, text, sub) {
+  $('hero').className = 'status-hero ' + cls;
+  $('hero-spinner').style.display = icon ? 'none' : '';
+  $('hero-icon').style.display = icon ? '' : 'none';
+  $('hero-icon').textContent = icon || '';
+  $('hero-text').textContent = text;
+  $('hero-sub').textContent = sub;
+  if (icon) {
+    $('again-btn').style.display = '';
+    // terminal state — show the customer their updated balance
+    const phone = $('phone').value.replace(/\s/g, '');
+    if (phone) api(`/wallets/${encodeURIComponent(phone)}`).then(res => {
+      if (res.ok) $('hero-sub').textContent = sub + ` Wallet balance: GHS ${(res.body.balance_pesewas / 100).toFixed(2)}.`;
+    });
+  }
+}
+
+async function poll(paymentId) {
+  for (let i = 0; i < 150; i++) {
+    const res = await api(`/payments/${paymentId}`);
+    const s = res.body?.status;
+    if (s === 'SUCCESS') {
+      return setHero('success', '✅', `Paid GHS ${(res.body.amount_pesewas / 100).toFixed(2)}`,
+        'Confirmed — listen for the soundbox announcement. That is the vendor\'s proof.');
+    }
+    if (s === 'FAILED') {
+      return setHero('failed', '❌', 'Payment failed', `${res.body.reason || 'The provider declined this payment'}. You were not charged — funds returned to your wallet.`);
+    }
+    if (s === 'EXPIRED') {
+      return setHero('expired', '⏱️', 'Payment expired', 'No confirmation was received. You were not charged — funds returned to your wallet.');
+    }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  setHero('expired', '❓', 'Still pending', 'Check with the vendor or try again.');
+}
+
+$('again-btn').addEventListener('click', () => location.reload());
+init();
+</script>
+</body>
+</html>

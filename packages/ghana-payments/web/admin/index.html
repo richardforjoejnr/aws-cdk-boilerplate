@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Merchant Portal — Ghana Payments</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="shell wide">
+  <header class="app">
+    <span class="logo">🇬🇭</span><h1>Merchant Portal</h1><span class="sub">ops &amp; onboarding</span>
+  </header>
+
+  <div id="key-card" class="card" style="max-width:420px; margin-left:auto; margin-right:auto">
+    <h2>Sign in</h2>
+    <div id="login-form">
+      <label>Username</label>
+      <input id="login-user" autocomplete="username" placeholder="admin" />
+      <label>Password</label>
+      <input id="login-pass" type="password" autocomplete="current-password" />
+      <div class="dim" id="login-error" style="color:var(--danger); margin-top:.4rem"></div>
+      <button id="login-btn">Sign in</button>
+      <button id="show-manual" class="secondary small" style="margin-top:.6rem">Paste an API key instead</button>
+    </div>
+    <div id="manual-form" style="display:none">
+      <label>Admin API key</label>
+      <input id="api-key" type="password" placeholder="x-api-key value" />
+      <p class="dim">Fetch via CLI — see RUNBOOK §4.</p>
+      <button id="save-key" class="small" style="margin-top:.8rem">Save key</button>
+    </div>
+  </div>
+
+  <div id="portal" style="display:none">
+    <div class="card">
+      <h2>Sign up a merchant</h2>
+      <div class="row">
+        <div><label>Display name</label><input id="m-name" placeholder="Ama Serwaa Fruits" /></div>
+        <div><label>Phone</label><input id="m-phone" placeholder="020 XXX XXXX" /></div>
+        <div><label>Category</label>
+          <select id="m-cat">
+            <option>food</option><option>fashion</option><option>electronics</option>
+            <option>transport</option><option>general</option>
+          </select>
+        </div>
+      </div>
+      <button id="create-btn" class="small" style="margin-top:1rem">Create merchant</button>
+    </div>
+
+    <div class="card">
+      <h2>Merchants <button id="refresh-btn" class="small secondary" style="float:right">Refresh</button></h2>
+      <table>
+        <thead><tr><th>Name</th><th>Category</th><th>Status</th><th>ID</th><th style="text-align:right">Actions</th></tr></thead>
+        <tbody id="merchant-rows"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Soundbox devices <button id="dev-refresh-btn" class="small secondary" style="float:right">Refresh</button></h2>
+      <div class="row">
+        <div><label>Serial number</label><input id="d-serial" placeholder="SBX-0001" /></div>
+        <div><label>Type</label>
+          <select id="d-type"><option value="VIRTUAL">Virtual (browser)</option><option value="REAL">Real hardware</option></select>
+        </div>
+        <div><label>Merchant</label><select id="d-merchant"><option value="">— pair later —</option></select></div>
+        <div style="flex:0 0 auto; align-self:flex-end"><button id="d-register-btn" class="small">Register</button></div>
+      </div>
+      <div class="row" id="real-fields" style="display:none">
+        <div><label>Firmware version</label><input id="d-firmware" placeholder="0.1.0" /></div>
+        <div><label>Notes (hardware, SIM, location…)</label><input id="d-notes" placeholder="ESP32 + I2S amp, office demo unit" /></div>
+      </div>
+      <table style="margin-top:1rem">
+        <thead><tr><th>Serial</th><th>Status</th><th>Merchant</th><th>Last seen</th><th style="text-align:right">Actions</th></tr></thead>
+        <tbody id="device-rows"></tbody>
+      </table>
+      <div id="pairing-result" class="dim" style="margin-top:.6rem"></div>
+      <div id="device-info" class="card" style="display:none; margin-top:.8rem; background:var(--surface-overlay)">
+        <h2 id="di-title">Device setup</h2>
+        <div id="di-body" class="muted" style="font-size:.85rem"></div>
+        <button class="small secondary" style="margin-top:.8rem" onclick="document.getElementById('device-info').style.display='none'">Close</button>
+      </div>
+    </div>
+
+    <div id="qr-card" class="card" style="display:none">
+      <h2>QR badge for <span id="qr-merchant"></span></h2>
+      <img id="qr-img" class="qr-img" alt="QR code" />
+      <p class="dim" style="text-align:center" id="qr-url"></p>
+      <div class="row">
+        <a id="qr-download" class="btn secondary" download>Download PNG</a>
+        <button id="qr-close" class="secondary">Close</button>
+      </div>
+    </div>
+
+  <div id="issue-card" class="card" style="display:none">
+    <h2>🐞 Report an issue</h2>
+    <label>Title</label>
+    <input id="issue-title" maxlength="200" placeholder="Short summary" />
+    <label>Description</label>
+    <input id="issue-desc" maxlength="5000" placeholder="What happened? What did you expect?" />
+    <div class="dim" id="issue-status" style="margin-top:.4rem"></div>
+    <div class="row">
+      <button id="issue-submit" class="small">Submit to GitHub</button>
+      <button class="small secondary" onclick="document.getElementById('issue-card').style.display='none'">Cancel</button>
+    </div>
+  </div>
+    <footer style="display:flex; align-items:center; gap:.6rem; padding:.8rem .2rem; border-top:1px solid var(--border); margin-top:.5rem">
+      <span class="dim">💰 AWS cost</span>
+      <span class="chip accent" id="cost-mtd">—</span>
+      <span class="dim" id="cost-detail">loading…</span>
+      <button id="issue-open" class="small secondary" style="margin-left:auto">🐞 Report an issue</button>
+    </footer>
+  </div>
+  <div id="toast" class="toast"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const show = (id, on = true) => { $(id).style.display = on ? '' : 'none'; };
+const toast = msg => { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 3000); };
+let KEY = localStorage.getItem('ghana_admin_key') || '';
+
+const api = (p, opts = {}) => fetch('/api/v1' + p, {
+  ...opts,
+  headers: { 'x-api-key': KEY, 'content-type': 'application/json', ...(opts.headers || {}) },
+}).then(async r => ({ ok: r.ok, status: r.status, body: await r.json().catch(() => ({})) }));
+
+function chipClass(status) {
+  return { ACTIVE: 'success', SUSPENDED: 'danger', PENDING_KYC: 'warning', CLOSED: 'danger' }[status] || '';
+}
+
+async function loadMerchants() {
+  const res = await api('/merchants');
+  if (res.status === 403) { localStorage.removeItem('ghana_admin_key'); show('portal', false); show('key-card'); return toast('API key rejected'); }
+  if (!res.ok) return toast('Failed to load merchants');
+  merchantsCache = res.body.merchants;
+  const sel = $('d-merchant');
+  if (sel) sel.innerHTML = '<option value="">— pair later —</option>' + merchantsCache
+    .filter(m => m.status === 'ACTIVE')
+    .map(m => `<option value="${m.merchant_id}">${m.display_name}</option>`).join('');
+  $('merchant-rows').innerHTML = res.body.merchants
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+    .map(m => `<tr>
+      <td>${m.display_name}</td><td class="muted">${m.business_category}</td>
+      <td><span class="chip ${chipClass(m.status)}">${m.status}</span></td>
+      <td class="dim">${m.merchant_id}</td>
+      <td style="text-align:right; white-space:nowrap">
+        <button class="small" onclick="genQr('${m.merchant_id}', '${m.display_name.replace(/'/g, "\\'")}')">QR</button>
+        ${m.status === 'ACTIVE'
+          ? `<button class="small secondary" onclick="setStatus('${m.merchant_id}','SUSPENDED')">Suspend</button>`
+          : `<button class="small secondary" onclick="setStatus('${m.merchant_id}','ACTIVE')">Reactivate</button>`}
+        <button class="small danger" onclick="removeMerchant('${m.merchant_id}','${m.display_name.replace(/'/g, "\\'")}')">Remove</button>
+      </td></tr>`)
+    .join('');
+}
+
+window.genQr = async (id, name) => {
+  const res = await api(`/merchants/${id}/qrs`, { method: 'POST', body: '{}' });
+  if (!res.ok) return toast(res.body?.error?.message || 'QR generation failed');
+  $('qr-merchant').textContent = name;
+  $('qr-img').src = 'data:image/png;base64,' + res.body.png_base64;
+  $('qr-url').textContent = res.body.payload_url;
+  $('qr-download').href = 'data:image/png;base64,' + res.body.png_base64;
+  $('qr-download').download = `qr-${name.toLowerCase().replace(/\s+/g, '-')}.png`;
+  show('qr-card');
+  $('qr-card').scrollIntoView({ behavior: 'smooth' });
+};
+
+window.removeMerchant = async (id, name) => {
+  if (!confirm(`Remove ${name} permanently? Their QR badges stop working and this cannot be undone. Use Suspend to disable temporarily.`)) return;
+  const res = await api(`/merchants/${id}`, { method: 'DELETE' });
+  res.ok ? (toast(`${name} removed`), loadMerchants(), loadDevices()) : toast(res.body?.error?.message || 'Remove failed');
+};
+
+window.setStatus = async (id, status) => {
+  const res = await api(`/merchants/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, reason: 'portal' }) });
+  res.ok ? loadMerchants() : toast('Status change failed');
+};
+
+$('create-btn').addEventListener('click', async () => {
+  const res = await api('/merchants', {
+    method: 'POST',
+    body: JSON.stringify({
+      display_name: $('m-name').value, phone: $('m-phone').value, business_category: $('m-cat').value,
+    }),
+  });
+  if (!res.ok) return toast(res.body?.error?.message || 'Create failed');
+  $('m-name').value = ''; $('m-phone').value = '';
+  toast(`Created ${res.body.merchant_id}`);
+  loadMerchants();
+});
+
+let merchantsCache = [];
+
+let devicesCache = [];
+let lastPairing = null; // {deviceId, serial} of the banner currently shown
+
+function deviceChip(d) {
+  const cls = {ACTIVE:'success',PAIRED:'accent',UNASSIGNED:'warning',SUSPENDED:'danger',RETIRED:'danger',OFFLINE:'danger'}[d.status] || '';
+  if (d.status === 'UNASSIGNED' && d.pending_merchant_id) {
+    const live = d.pairing_code_expires && d.pairing_code_expires > Date.now();
+    if (live) {
+      // Virtual codes don't expire (far-future timestamp) → no countdown
+      const nonExpiring = d.pairing_code_expires > Date.now() + 365 * 24 * 3600 * 1000;
+      if (nonExpiring) return `<span class="chip accent">CODE ${d.pairing_code || ''}</span>`;
+      const mins = Math.max(1, Math.round((d.pairing_code_expires - Date.now()) / 60000));
+      return `<span class="chip accent">CODE ${d.pairing_code || ''} · ${mins}m left</span>`;
+    }
+    return `<span class="chip danger">NEEDS NEW CODE</span> <span class="dim">codes are single-use — click Pair…</span>`;
+  }
+  return `<span class="chip ${cls}">${d.status}</span>`;
+}
+
+async function loadDevices() {
+  const res = await api('/devices');
+  if (!res.ok) return toast('Failed to load devices');
+  devicesCache = res.body.devices || [];
+  const merchantName = id => (merchantsCache.find(m => m.merchant_id === id) || {}).display_name || id || '—';
+  $('device-rows').innerHTML = (res.body.devices || [])
+    .filter(d => d.status !== 'RETIRED')
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+    .map(d => `<tr>
+      <td>${d.serial_number} <span class="chip" style="font-size:.62rem">${d.device_type === 'REAL' ? '🔌 real' : '🌐 virtual'}</span></td>
+      <td>${deviceChip(d)}</td>
+      <td>${d.merchant_id ? merchantName(d.merchant_id) : (d.pending_merchant_id ? `${merchantName(d.pending_merchant_id)} <span class="dim">(pending)</span>` : '—')}</td>
+      <td class="dim">${d.last_seen_at ? new Date(d.last_seen_at).toLocaleTimeString() : '—'}</td>
+      <td style="text-align:right; white-space:nowrap">
+        <button class="small" onclick="pairDevice('${d.device_id}','${d.serial_number}')">${d.status === 'PAIRED' || d.status === 'ACTIVE' ? 'Re-pair…' : 'Pair…'}</button>
+        <button class="small secondary" onclick="testDevice('${d.device_id}')">Test</button>
+        <button class="small secondary" onclick="deviceInfo('${d.device_id}','${d.serial_number}','${d.device_type}')">Info</button>
+        <button class="small danger" onclick="removeDevice('${d.device_id}','${d.serial_number}')">Remove</button>
+      </td></tr>`)
+    .join('');
+
+  if (lastPairing) {
+    const d = devicesCache.find(x => x.device_id === lastPairing.deviceId);
+    if (d && (d.status === 'PAIRED' || d.status === 'ACTIVE')) {
+      $('pairing-result').innerHTML = `<span class="chip success">✓ ${lastPairing.serial} paired successfully</span> — the code is now used up; generate a new one if you need to pair again.`;
+      lastPairing = null;
+    } else if (d && !(d.pairing_code_expires && d.pairing_code_expires > Date.now())) {
+      $('pairing-result').innerHTML = `<span class="chip danger">Code for ${lastPairing.serial} is no longer valid</span> — codes are single-use/10 min. Click <b>Pair…</b> to generate a new one.`;
+      lastPairing = null;
+    }
+  }
+}
+
+let pairInFlight = false;
+window.pairDevice = async (deviceId, serial) => {
+  if (pairInFlight) return;
+  pairInFlight = true;
+  setTimeout(() => { pairInFlight = false; }, 2000);
+  const device = devicesCache.find(d => d.device_id === deviceId) || {};
+  const merchantId = device.pending_merchant_id || device.merchant_id || $('d-merchant').value;
+  if (!merchantId) { toast('Select a merchant in the register row first'); return; }
+  const res = await api(`/devices/${deviceId}/pairing-code`, {
+    method: 'POST', body: JSON.stringify({ merchant_id: merchantId }),
+  });
+  if (!res.ok) return toast(res.body?.error?.message || 'Pairing code failed');
+  showPairingBanner(serial, merchantId, res.body.pairing_code, device.device_type, deviceId);
+  if (device.device_type !== 'REAL') {
+    window.open(`/soundbox/?serial=${encodeURIComponent(serial)}`, '_blank');
+  }
+  loadDevices();
+};
+
+function showPairingBanner(serial, merchantId, code, deviceType, deviceId) {
+  if (deviceId) lastPairing = { deviceId, serial };
+  const mName = (merchantsCache.find(m => m.merchant_id === merchantId) || {}).display_name || merchantId;
+  const link = `/soundbox/?serial=${encodeURIComponent(serial)}`;
+  $('pairing-result').innerHTML =
+    `Pairing code for <b>${serial}</b> → ${mName}: ` +
+    `<span class="chip accent" style="font-size:1rem">${code}</span> — ` +
+    (deviceType === 'REAL'
+      ? `use this code when provisioning the device — see <code>docs/DEVICE_SETUP.md</code>`
+      : `type it on <a href="${link}" target="_blank" style="color:var(--accent)">the soundbox page</a> (serial prefilled) and press Pair &amp; connect`);
+}
+
+window.testDevice = async (deviceId) => {
+  const res = await api(`/devices/${deviceId}/events`, {
+    method: 'POST', body: JSON.stringify({ event_type: 'TEST_ANNOUNCEMENT' }),
+  });
+  toast(res.ok ? 'Test announcement sent' : 'Send failed');
+};
+
+$('d-type').addEventListener('change', () => {
+  show('real-fields', $('d-type').value === 'REAL');
+});
+
+window.deviceInfo = async (deviceId, serial, type) => {
+  $('di-title').textContent = `${serial} — ${type === 'REAL' ? 'real device setup' : 'virtual soundbox'}`;
+  if (type !== 'REAL') {
+    $('di-body').innerHTML = `This is a browser-based soundbox. Click <b>Pair…</b> on the device row —
+      it generates a single-use code and opens
+      <a href="/soundbox/?serial=${encodeURIComponent(serial)}" target="_blank" style="color:var(--accent)">${location.origin}/soundbox/</a>
+      with the serial and code prefilled; just press <b>Pair &amp; connect</b> on a machine with speakers.`;
+  } else {
+    const cfg = (await api('/soundbox/config')).body || {};
+    $('di-body').innerHTML = `A real device connects to AWS IoT Core over <b>MQTT/TLS, port 8883</b>, with an X.509 certificate. Configure it with:
+      <table style="margin:.6rem 0">
+        <tr><td class="dim">IoT endpoint</td><td><code>${cfg.iot_endpoint || '—'}</code></td></tr>
+        <tr><td class="dim">Region</td><td><code>${cfg.region || '—'}</code></td></tr>
+        <tr><td class="dim">MQTT client id</td><td><code>soundbox-${deviceId}</code></td></tr>
+        <tr><td class="dim">Subscribe (QoS 1)</td><td><code>devices/${deviceId}/payments</code>, <code>devices/${deviceId}/commands</code></td></tr>
+        <tr><td class="dim">Publish heartbeat</td><td><code>devices/${deviceId}/heartbeat</code> every 60s</td></tr>
+        <tr><td class="dim">Session</td><td>clean session <b>false</b> (replays missed announcements)</td></tr>
+      </table>
+      <b>To provision:</b> generate a pairing code with <b>Pair…</b>, then follow the setup guide —
+      it creates the device certificate, pairs it with the code, and produces a ready-to-run config bundle
+      for a laptop, Raspberry Pi, or ESP32: <code>packages/ghana-payments/docs/DEVICE_SETUP.md</code>`;
+  }
+  show('device-info');
+  $('device-info').scrollIntoView({ behavior: 'smooth' });
+};
+
+$('d-register-btn').addEventListener('click', async () => {
+  const isReal = $('d-type').value === 'REAL';
+  const serial = $('d-serial').value.trim();
+  const res = await api('/devices', {
+    method: 'POST',
+    body: JSON.stringify({
+      serial_number: serial,
+      device_type: $('d-type').value,
+      model: isReal ? 'esp32-soundbox' : 'virtual-soundbox',
+      ...(isReal && $('d-firmware').value.trim() ? { firmware_version: $('d-firmware').value.trim() } : {}),
+      ...(isReal && $('d-notes').value.trim() ? { notes: $('d-notes').value.trim() } : {}),
+    }),
+  });
+  if (!res.ok) return toast(res.body?.error?.message || 'Register failed');
+  toast(`Registered ${res.body.device_id}`);
+  // Merchant chosen up front -> generate the pairing code in the same step
+  const merchantId = $('d-merchant').value;
+  if (merchantId) {
+    const pc = await api(`/devices/${res.body.device_id}/pairing-code`, {
+      method: 'POST', body: JSON.stringify({ merchant_id: merchantId }),
+    });
+    if (pc.ok) showPairingBanner(serial, merchantId, pc.body.pairing_code, $('d-type').value, res.body.device_id);
+  }
+  $('d-serial').value = '';
+  loadDevices();
+});
+
+window.removeDevice = async (deviceId, serial) => {
+  if (!confirm(`Remove ${serial}? This deletes the device and its access — the serial can then be re-registered.`)) return;
+  const res = await api(`/devices/${deviceId}`, { method: 'DELETE' });
+  res.ok ? (toast(`${serial} removed`), loadDevices()) : toast(res.body?.error?.message || 'Remove failed');
+};
+$('dev-refresh-btn').addEventListener('click', loadDevices);
+
+$('login-btn').addEventListener('click', async () => {
+  $('login-error').textContent = '';
+  $('login-btn').disabled = true;
+  const res = await fetch('/api/v1/auth/token', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username: $('login-user').value.trim(), password: $('login-pass').value }),
+  }).then(async r => ({ ok: r.ok, body: await r.json().catch(() => ({})) }));
+  $('login-btn').disabled = false;
+  if (!res.ok) { $('login-error').textContent = res.body?.error?.message || 'Sign-in failed'; return; }
+  KEY = res.body.api_key;
+  localStorage.setItem('ghana_admin_key', KEY);
+  start();
+});
+$('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') $('login-btn').click(); });
+$('show-manual').addEventListener('click', () => { show('login-form', false); show('manual-form'); });
+$('save-key').addEventListener('click', () => {
+  KEY = $('api-key').value.trim();
+  localStorage.setItem('ghana_admin_key', KEY);
+  start();
+});
+$('refresh-btn').addEventListener('click', loadMerchants);
+$('qr-close').addEventListener('click', () => show('qr-card', false));
+
+async function loadCosts() {
+  const res = await api('/costs');
+  if (!res.ok) { $('cost-detail').textContent = 'cost data unavailable'; return; }
+  const c = res.body;
+  $('cost-mtd').textContent = `$${c.month_to_date_usd.toFixed(2)} this month`;
+  const age = Math.round((Date.now() - Date.parse(c.fetched_at)) / 3600000);
+  $('cost-detail').textContent =
+    `yesterday $${c.yesterday_usd.toFixed(2)} · whole account (${c.month}) · CE lags ~24h · refreshed ${age < 1 ? '<1' : age}h ago`;
+}
+
+
+document.getElementById('issue-open').addEventListener('click', () => {
+  const c = document.getElementById('issue-card');
+  c.style.display = ''; c.scrollIntoView({ behavior: 'smooth' });
+});
+document.getElementById('issue-submit').addEventListener('click', async () => {
+  const st = document.getElementById('issue-status');
+  const title = document.getElementById('issue-title').value.trim();
+  const desc = document.getElementById('issue-desc').value.trim();
+  if (!title || !desc) { st.textContent = 'Title and description are required'; return; }
+  document.getElementById('issue-submit').disabled = true;
+  st.textContent = 'Submitting…';
+  const res = await api('/issues', {
+    method: 'POST',
+    body: JSON.stringify({ title, description: desc, source: 'admin' }),
+  });
+  document.getElementById('issue-submit').disabled = false;
+  if (res.ok) {
+    st.innerHTML = `✓ Raised <a href="${res.body.issue_url}" target="_blank" style="color:var(--accent)">issue #${res.body.number}</a>`;
+    document.getElementById('issue-title').value = ''; document.getElementById('issue-desc').value = '';
+  } else {
+    st.textContent = res.body?.error?.message || 'Failed to raise issue';
+  }
+});
+
+async function start() {
+  if (!KEY) return;
+  show('key-card', false); show('portal');
+  await loadMerchants(); loadDevices(); loadCosts();
+  setInterval(loadDevices, 15000); // keep pairing state fresh (device list read ~ $0.000001)
+}
+start();
+</script>
+</body>
+</html>
