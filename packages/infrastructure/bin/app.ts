@@ -149,9 +149,9 @@ if (deployBalanceWeb) {
 // Ghana Payments PoC — street vendor digital payment & soundbox platform
 // Design: packages/ghana-payments/docs/planning/architecture.md
 const ghanaPrefix = `${stage}-ghana-payments`;
-// PoC: only prod retains data. test/pr-* stay fully destroyable (RETAIN +
-// deletion protection on a PoC test stage just strands tables on teardown).
-const ghanaProdLike = stage === 'prod';
+// PoC decision (Richard, 2026-07-11): NO ghana stage retains data — every
+// environment destroys to zero, prod included. Revisit before any real pilot.
+const ghanaProdLike = false;
 const ghanaFoundation = new GhanaPaymentsFoundationStack(app, `${ghanaPrefix}-foundation`, {
   env,
   description: `Ghana Payments PoC data & event layer for ${stage}`,

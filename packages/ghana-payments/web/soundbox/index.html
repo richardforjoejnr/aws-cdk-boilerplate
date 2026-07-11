@@ -211,10 +211,13 @@ $('unpair-btn').addEventListener('click', () => {
 const qs = new URLSearchParams(location.search);
 if (qs.get('serial')) { $('serial').value = qs.get('serial'); $('code').focus(); }
 
-// Auto-reconnect a previously paired device (policy already attached; needs one click for
-// audio) — unless the portal sent us here to pair a specific device (?serial=...)
+// Auto-reconnect a previously paired device (policy already attached; needs one click
+// for audio). A ?serial= param only forces the pairing form when it's a DIFFERENT
+// device than the one paired in this browser — refreshing the pair link of the
+// already-paired device must offer Reconnect, not demand a new (single-use) code.
 const saved = localStorage.getItem('sbx_device');
-if (saved && !qs.get('serial')) {
+const qsSerial = qs.get('serial');
+if (saved && (!qsSerial || qsSerial === localStorage.getItem('sbx_serial'))) {
   setBadge('paired — click to reconnect', 'accent');
   $('pair-card').innerHTML = '<h2>Reconnect</h2><p class="muted">This browser is already paired as <b>' +
     (localStorage.getItem('sbx_serial') || 'device') + '</b>.</p><button id="reconnect-btn">Reconnect &amp; enable audio</button>';
