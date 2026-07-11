@@ -37,12 +37,10 @@ on:
         required: false
         type: string
         default: ''
-  # Only deploy automatically on main (prod) and develop (test)
-  # Feature branches should use manual workflow_dispatch
-  push:
-    branches:
-      - main
-      - develop
+  # Manual-only. The push-to-main trigger was removed (2026-07-11): merging a PR
+  # auto-deployed `cdk deploy --all` to PROD, which silently pushed every app —
+  # including new ones like Ghana Payments — into production. Production/test
+  # deploys are now deliberate: Actions → "Deploy to AWS" → choose the environment.
 
 permissions:
   id-token: write
