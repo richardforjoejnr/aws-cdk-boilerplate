@@ -351,6 +351,20 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
       ],
     });
 
+    // Issue reporting: portals -> GitHub Issues (token in SSM SecureString, out-of-band)
+    const issues = make('issues', 'issues/handlers.ts', 'createHandler');
+    issues.addEnvironment('GITHUB_REPO', 'richardforjoejnr/aws-cdk-boilerplate');
+    issues.addEnvironment('GITHUB_TOKEN_PARAM', `/${stage}/ghana-payments/github/token`);
+    issues.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['ssm:GetParameter'],
+        resources: [
+          `arn:aws:ssm:${this.region}:${this.account}:parameter/${stage}/ghana-payments/github/token`,
+        ],
+      })
+    );
+    v1.addResource('issues').addMethod('POST', integrate(issues));
+
     // Cost footer: account MTD spend, SSM-cached 6h (each CE call bills $0.01)
     const costs = make('costs', 'costs/handlers.ts');
     costs.addEnvironment('COST_CACHE_PARAM', `/${stage}/ghana-payments/cost-cache`);

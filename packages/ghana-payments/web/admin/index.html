@@ -90,10 +90,24 @@
         <button id="qr-close" class="secondary">Close</button>
       </div>
     </div>
+
+  <div id="issue-card" class="card" style="display:none">
+    <h2>🐞 Report an issue</h2>
+    <label>Title</label>
+    <input id="issue-title" maxlength="200" placeholder="Short summary" />
+    <label>Description</label>
+    <input id="issue-desc" maxlength="5000" placeholder="What happened? What did you expect?" />
+    <div class="dim" id="issue-status" style="margin-top:.4rem"></div>
+    <div class="row">
+      <button id="issue-submit" class="small">Submit to GitHub</button>
+      <button class="small secondary" onclick="document.getElementById('issue-card').style.display='none'">Cancel</button>
+    </div>
+  </div>
     <footer style="display:flex; align-items:center; gap:.6rem; padding:.8rem .2rem; border-top:1px solid var(--border); margin-top:.5rem">
       <span class="dim">💰 AWS cost</span>
       <span class="chip accent" id="cost-mtd">—</span>
       <span class="dim" id="cost-detail">loading…</span>
+      <button id="issue-open" class="small secondary" style="margin-left:auto">🐞 Report an issue</button>
     </footer>
   </div>
   <div id="toast" class="toast"></div>
@@ -349,6 +363,31 @@ async function loadCosts() {
   $('cost-detail').textContent =
     `yesterday $${c.yesterday_usd.toFixed(2)} · whole account (${c.month}) · CE lags ~24h · refreshed ${age < 1 ? '<1' : age}h ago`;
 }
+
+
+document.getElementById('issue-open').addEventListener('click', () => {
+  const c = document.getElementById('issue-card');
+  c.style.display = ''; c.scrollIntoView({ behavior: 'smooth' });
+});
+document.getElementById('issue-submit').addEventListener('click', async () => {
+  const st = document.getElementById('issue-status');
+  const title = document.getElementById('issue-title').value.trim();
+  const desc = document.getElementById('issue-desc').value.trim();
+  if (!title || !desc) { st.textContent = 'Title and description are required'; return; }
+  document.getElementById('issue-submit').disabled = true;
+  st.textContent = 'Submitting…';
+  const res = await fetch('/api/v1/issues', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title, description: desc, source: 'admin' }),
+  }).then(async r => ({ ok: r.ok, body: await r.json().catch(() => ({})) }));
+  document.getElementById('issue-submit').disabled = false;
+  if (res.ok) {
+    st.innerHTML = `✓ Raised <a href="${res.body.issue_url}" target="_blank" style="color:var(--accent)">issue #${res.body.number}</a>`;
+    document.getElementById('issue-title').value = ''; document.getElementById('issue-desc').value = '';
+  } else {
+    st.textContent = res.body?.error?.message || 'Failed to raise issue';
+  }
+});
 
 async function start() {
   if (!KEY) return;
