@@ -190,6 +190,7 @@ $('pair-btn').addEventListener('click', async () => {
 
 $('volume').addEventListener('input', e => { volume = parseFloat(e.target.value); });
 $('unpair-btn').addEventListener('click', () => {
+  if (!confirm('Forget this device? Pairing codes are single-use — you will need to generate a NEW code in the merchant portal to pair again.')) return;
   ['sbx_device', 'sbx_serial', 'sbx_identity', 'sbx_config'].forEach(k => localStorage.removeItem(k));
   location.reload();
 });

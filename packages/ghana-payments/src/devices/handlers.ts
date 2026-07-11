@@ -101,6 +101,8 @@ export const listHandler = async (): Promise<APIGatewayProxyResult> => {
       status: d.status,
       merchant_id: d.merchant_id ?? null,
       pending_merchant_id: d.pending_merchant_id ?? null,
+      // present + future => an unconsumed pairing code is outstanding (codes are single-use)
+      pairing_code_expires: d.pairing_code_expires ?? null,
       last_seen_at: d.last_seen_at ?? null,
       created_at: d.created_at,
     }));

@@ -171,6 +171,20 @@ $('create-btn').addEventListener('click', async () => {
 let merchantsCache = [];
 
 let devicesCache = [];
+let lastPairing = null; // {deviceId, serial} of the banner currently shown
+
+function deviceChip(d) {
+  const cls = {ACTIVE:'success',PAIRED:'accent',UNASSIGNED:'warning',SUSPENDED:'danger',RETIRED:'danger',OFFLINE:'danger'}[d.status] || '';
+  if (d.status === 'UNASSIGNED' && d.pending_merchant_id) {
+    const live = d.pairing_code_expires && d.pairing_code_expires > Date.now();
+    if (live) {
+      const mins = Math.max(1, Math.round((d.pairing_code_expires - Date.now()) / 60000));
+      return `<span class="chip accent">CODE ISSUED · ${mins}m left</span>`;
+    }
+    return `<span class="chip danger">NEEDS NEW CODE</span> <span class="dim">codes are single-use — click Pair…</span>`;
+  }
+  return `<span class="chip ${cls}">${d.status}</span>`;
+}
 
 async function loadDevices() {
   const res = await api('/devices');
@@ -182,7 +196,7 @@ async function loadDevices() {
     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
     .map(d => `<tr>
       <td>${d.serial_number} <span class="chip" style="font-size:.62rem">${d.device_type === 'REAL' ? '🔌 real' : '🌐 virtual'}</span></td>
-      <td><span class="chip ${{ACTIVE:'success',PAIRED:'accent',UNASSIGNED:'warning',SUSPENDED:'danger',RETIRED:'danger',OFFLINE:'danger'}[d.status]||''}">${d.status === 'UNASSIGNED' && d.pending_merchant_id ? 'AWAITING PAIR' : d.status}</span></td>
+      <td>${deviceChip(d)}</td>
       <td>${d.merchant_id ? merchantName(d.merchant_id) : (d.pending_merchant_id ? `${merchantName(d.pending_merchant_id)} <span class="dim">(pending)</span>` : '—')}</td>
       <td class="dim">${d.last_seen_at ? new Date(d.last_seen_at).toLocaleTimeString() : '—'}</td>
       <td style="text-align:right; white-space:nowrap">
@@ -192,6 +206,17 @@ async function loadDevices() {
         <button class="small danger" onclick="removeDevice('${d.device_id}','${d.serial_number}')">Remove</button>
       </td></tr>`)
     .join('');
+
+  if (lastPairing) {
+    const d = devicesCache.find(x => x.device_id === lastPairing.deviceId);
+    if (d && (d.status === 'PAIRED' || d.status === 'ACTIVE')) {
+      $('pairing-result').innerHTML = `<span class="chip success">✓ ${lastPairing.serial} paired successfully</span> — the code is now used up; generate a new one if you need to pair again.`;
+      lastPairing = null;
+    } else if (d && !(d.pairing_code_expires && d.pairing_code_expires > Date.now())) {
+      $('pairing-result').innerHTML = `<span class="chip danger">Code for ${lastPairing.serial} is no longer valid</span> — codes are single-use/10 min. Click <b>Pair…</b> to generate a new one.`;
+      lastPairing = null;
+    }
+  }
 }
 
 window.pairDevice = async (deviceId, serial) => {
@@ -202,14 +227,15 @@ window.pairDevice = async (deviceId, serial) => {
     method: 'POST', body: JSON.stringify({ merchant_id: merchantId }),
   });
   if (!res.ok) return toast(res.body?.error?.message || 'Pairing code failed');
-  showPairingBanner(serial, merchantId, res.body.pairing_code, device.device_type);
+  showPairingBanner(serial, merchantId, res.body.pairing_code, device.device_type, deviceId);
   if (device.device_type !== 'REAL') {
     window.open(`/soundbox/?serial=${encodeURIComponent(serial)}&code=${res.body.pairing_code}`, '_blank');
   }
   loadDevices();
 };
 
-function showPairingBanner(serial, merchantId, code, deviceType) {
+function showPairingBanner(serial, merchantId, code, deviceType, deviceId) {
+  if (deviceId) lastPairing = { deviceId, serial };
   const mName = (merchantsCache.find(m => m.merchant_id === merchantId) || {}).display_name || merchantId;
   const link = `/soundbox/?serial=${encodeURIComponent(serial)}&code=${code}`;
   $('pairing-result').innerHTML =
@@ -234,10 +260,10 @@ $('d-type').addEventListener('change', () => {
 window.deviceInfo = async (deviceId, serial, type) => {
   $('di-title').textContent = `${serial} — ${type === 'REAL' ? 'real device setup' : 'virtual soundbox'}`;
   if (type !== 'REAL') {
-    $('di-body').innerHTML = `This is a browser-based soundbox. Open
-      <a href="/soundbox/" target="_blank" style="color:var(--accent)">${location.origin}/soundbox/</a>
-      on a machine with speakers, generate a pairing code with <b>Pair…</b>, and enter serial
-      <b>${serial}</b> + the code there.`;
+    $('di-body').innerHTML = `This is a browser-based soundbox. Click <b>Pair…</b> on the device row —
+      it generates a single-use code and opens
+      <a href="/soundbox/?serial=${encodeURIComponent(serial)}" target="_blank" style="color:var(--accent)">${location.origin}/soundbox/</a>
+      with the serial and code prefilled; just press <b>Pair &amp; connect</b> on a machine with speakers.`;
   } else {
     const cfg = (await api('/soundbox/config')).body || {};
     $('di-body').innerHTML = `A real device connects to AWS IoT Core over <b>MQTT/TLS, port 8883</b>, with an X.509 certificate. Configure it with:
@@ -280,7 +306,7 @@ $('d-register-btn').addEventListener('click', async () => {
     const pc = await api(`/devices/${res.body.device_id}/pairing-code`, {
       method: 'POST', body: JSON.stringify({ merchant_id: merchantId }),
     });
-    if (pc.ok) showPairingBanner(serial, merchantId, pc.body.pairing_code, $('d-type').value);
+    if (pc.ok) showPairingBanner(serial, merchantId, pc.body.pairing_code, $('d-type').value, res.body.device_id);
   }
   $('d-serial').value = '';
   loadDevices();
@@ -326,7 +352,12 @@ async function loadCosts() {
     `yesterday $${c.yesterday_usd.toFixed(2)} · whole account (${c.month}) · CE lags ~24h · refreshed ${age < 1 ? '<1' : age}h ago`;
 }
 
-async function start() { if (!KEY) return; show('key-card', false); show('portal'); await loadMerchants(); loadDevices(); loadCosts(); }
+async function start() {
+  if (!KEY) return;
+  show('key-card', false); show('portal');
+  await loadMerchants(); loadDevices(); loadCosts();
+  setInterval(loadDevices, 15000); // keep pairing state fresh (device list read ~ $0.000001)
+}
 start();
 </script>
 </body>
