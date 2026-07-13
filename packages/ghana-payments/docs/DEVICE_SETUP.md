@@ -22,6 +22,70 @@ A Pi with a speaker *is* a soundbox — this exercises the exact production devi
 
 Raspberry Pi notes: any Pi with Node 20+ (`curl -fsSL https://deb.nodesource.com/setup_20.x | sudo bash - && sudo apt install -y nodejs espeak`), a speaker on the 3.5 mm jack or HDMI, and the bundle folder copied over (`scp -r device-bundles/SBX-PI-001 pi@host:`). The client needs only `mqtt` from npm (`npm i mqtt` next to the bundle if not running from the repo).
 
+### Raspberry Pi quickstart (turnkey, ~10 min from a fresh Pi)
+
+On your laptop, provision the device and copy the bundle to the Pi:
+```bash
+# 1. Register a REAL device in the merchant portal (serial e.g. SBX-PI-001), click Pair…, copy the code
+# 2. From the repo root:
+./scripts/setup-real-device.sh dev SBX-PI-001 <pairing_code>
+scp -r device-bundles/SBX-PI-001 pi@raspberrypi.local:~/soundbox
+```
+
+On the Pi (SSH in), install runtime + the one npm dep, and smoke-test:
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo bash -
+sudo apt install -y nodejs espeak alsa-utils
+# grab just the client script (or clone the repo); it needs only 'mqtt'
+cd ~/soundbox && npm init -y >/dev/null && npm i mqtt
+# copy the client next to the bundle:
+scp your-laptop:.../packages/ghana-payments/device-client/soundbox-client.mjs ~/soundbox/
+# pick the audio output and set volume (3.5mm = card headphones; HDMI = card HDMI)
+espeak "soundbox online"          # you should hear this
+node soundbox-client.mjs SBX-PI-001   # connects, subscribes; scan a QR + pay -> it speaks
+```
+
+Make it auto-start on boot as a real appliance (`systemd`):
+```bash
+sudo tee /etc/systemd/system/soundbox.service >/dev/null <<'EOF'
+[Unit]
+Description=Ghana Payments Soundbox
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/soundbox
+ExecStart=/usr/bin/node /home/pi/soundbox/soundbox-client.mjs SBX-PI-001
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl enable --now soundbox
+journalctl -u soundbox -f   # watch it connect + announce
+```
+Now the Pi behaves like a shipped soundbox: powers on → connects → announces payments, reconnects after network drops, replays announcements missed while offline. Remove it any time from the portal (**Remove**) — it self-unpairs and stops.
+
+Audio tips: no sound? `sudo raspi-config` → System Options → Audio to pick 3.5 mm vs HDMI, and `alsamixer` to raise volume. A **USB speaker** works on any Pi (incl. Zero) with no config. For the field-test cellular device, add a 4G USB dongle/HAT and a data SIM — the client is transport-agnostic.
+
+### What to buy (UK, for the PoC)
+
+Any Pi with Node 20 + a speaker works. Best value/effort trade-off:
+
+| Option | Why | Approx £ |
+| --- | --- | --- |
+| **Raspberry Pi 4 (2–4GB) starter kit** — *recommended* | Full-size ports + **3.5 mm audio jack** (plug any powered speaker straight in), kit includes PSU + SD-with-OS + case, so it's turnkey. Least friction. | ~£65–85 |
+| **Raspberry Pi Zero 2 W + USB speaker** | Cheapest; capable, but no 3.5 mm jack (use a **USB speaker**) and fiddlier micro ports. | ~£30 |
+| **USB or 3.5 mm powered speaker** | Any small powered speaker; USB ones need zero Pi audio config. | ~£8–12 |
+
+- Pi 4 starter kit (CanaKit, UK): https://www.amazon.co.uk/CanaKit-Raspberry-4GB-Starter-Kit/dp/B07XH3HWTQ or https://www.amazon.co.uk/CanaKit-Raspberry-Pi-Starter-Kit/dp/B07V4G63M1
+- Pi Zero 2 W (browse current UK listings): https://www.amazon.co.uk/raspberry-pi-zero-2-w/s?k=raspberry+pi+zero+2+w
+- USB mini speaker (browse): search Amazon UK for "USB powered mini speaker"
+
+Prices/stock shift — the links are entry points, not fixed offers. Avoid buying a **commercial MoMo/payment soundbox**: those are locked to their provider's cloud and can't connect to your IoT endpoint.
+
 ## Option B — ESP32 soundbox (the concept §17.7 hardware)
 
 Hardware: ESP32 dev board + I2S amplifier (e.g. MAX98357A) + small speaker, or start with the serial console as "audio".
