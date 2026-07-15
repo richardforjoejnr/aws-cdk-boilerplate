@@ -285,13 +285,37 @@ $('d-type').addEventListener('change', () => {
   show('real-fields', $('d-type').value === 'REAL');
 });
 
+window.copyText = (t) => { navigator.clipboard?.writeText(t); toast('Copied ' + t); };
+
+// Demo convenience: mint a fresh PIN from the Info panel and show it inline.
+window.genInfoPin = async (deviceId, serial) => {
+  const dev = devicesCache.find(d => d.device_id === deviceId) || {};
+  const merchantId = dev.pending_merchant_id || dev.merchant_id;
+  if (!merchantId) { toast('Assign a merchant first (Re-pair…)'); return; }
+  const res = await api(`/devices/${deviceId}/pairing-code`, {
+    method: 'POST', body: JSON.stringify({ merchant_id: merchantId }),
+  });
+  if (!res.ok) { toast(res.body?.error?.message || 'Could not generate PIN'); return; }
+  await loadDevices();          // refresh cache so the new code is available
+  deviceInfo(deviceId, serial, dev.device_type || 'VIRTUAL');  // re-render with the PIN
+  toast('New PIN: ' + res.body.pairing_code);
+};
+
 window.deviceInfo = async (deviceId, serial, type) => {
   $('di-title').textContent = `${serial} — ${type === 'REAL' ? 'real device setup' : 'virtual soundbox'}`;
   if (type !== 'REAL') {
-    $('di-body').innerHTML = `This is a browser-based soundbox. Click <b>Pair…</b> on the device row —
-      it generates a single-use code and opens
+    const dev = devicesCache.find(d => d.device_id === deviceId) || {};
+    const liveCode = dev.pairing_code && dev.pairing_code_expires > Date.now() ? dev.pairing_code : null;
+    const codeBlock = liveCode
+      ? `Current pairing PIN: <span class="chip accent" style="font-size:1rem">${liveCode}</span>
+         <button class="small" onclick="copyText('${liveCode}')">Copy</button>`
+      : `<span class="dim">No active PIN (single-use — consumed when a soundbox paired).</span>`;
+    $('di-body').innerHTML = `Browser-based soundbox. Open
       <a href="/soundbox/?serial=${encodeURIComponent(serial)}" target="_blank" style="color:var(--accent)">${location.origin}/soundbox/</a>
-      with the serial and code prefilled; just press <b>Pair &amp; connect</b> on a machine with speakers.`;
+      on a machine with speakers and enter the serial + PIN, then press <b>Pair &amp; connect</b>.
+      <div style="margin-top:.7rem">${codeBlock}</div>
+      <button class="small secondary" style="margin-top:.7rem" onclick="genInfoPin('${deviceId}','${serial.replace(/'/g,"\\'")}')">Generate a fresh PIN</button>
+      <span class="dim">— demo convenience; each new PIN replaces the previous one.</span>`;
   } else {
     const cfg = (await api('/soundbox/config')).body || {};
     $('di-body').innerHTML = `A real device connects to AWS IoT Core over <b>MQTT/TLS, port 8883</b>, with an X.509 certificate. Configure it with:
