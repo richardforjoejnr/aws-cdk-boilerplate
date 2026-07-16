@@ -83,14 +83,27 @@ fi
 cd ../..
 
 # Step 4: delete SSM parameters created at runtime / out-of-band (admin credentials,
-# cost cache) plus anything CFN left behind under the project path
+# cost cache, github token) plus anything CFN left behind under the project path.
+# Loop until empty and tolerate not-found: a concurrent seed step or an in-flight
+# CFN stack delete can add/remove params mid-cleanup — a single list-then-delete
+# pass then races (this is what failed run 29453159411).
 echo -e "${BLUE}Step 4: Cleaning SSM parameters...${NC}"
-LEFTOVER_PARAMS=$(aws ssm get-parameters-by-path --path "/${STAGE}/ghana-payments" --recursive \
-  --query 'Parameters[].Name' --output text)
-for name in $LEFTOVER_PARAMS; do
-  [ "$name" == "None" ] && continue
-  aws ssm delete-parameter --name "$name" && echo "  deleted param $name"
-done
+clean_ssm_params() {
+  local attempt names
+  for attempt in 1 2 3; do
+    names=$(aws ssm get-parameters-by-path --path "/${STAGE}/ghana-payments" --recursive \
+      --query 'Parameters[].Name' --output text 2>/dev/null)
+    [ -z "$names" ] || [ "$names" == "None" ] && return 0
+    for name in $names; do
+      [ "$name" == "None" ] && continue
+      # ignore ParameterNotFound (already deleted by CFN or a prior pass)
+      aws ssm delete-parameter --name "$name" >/dev/null 2>&1 && echo "  deleted param $name" || true
+    done
+    sleep 2
+  done
+  return 1
+}
+clean_ssm_params
 echo -e "${GREEN}✓ SSM parameters cleaned${NC}"
 
 # Step 5: verify nothing is left
@@ -99,6 +112,11 @@ LEFT_STACKS=$(aws cloudformation list-stacks \
   --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE UPDATE_ROLLBACK_COMPLETE DELETE_FAILED \
   --query "StackSummaries[?starts_with(StackName, '${STAGE}-ghana-payments')].StackName" --output text)
 LEFT_PARAMS=$(aws ssm get-parameters-by-path --path "/${STAGE}/ghana-payments" --recursive --query 'Parameters[].Name' --output text)
+# self-heal: if a param reappeared (race), delete it and re-check once before failing
+if [ -n "$LEFT_PARAMS" ] && [ "$LEFT_PARAMS" != "None" ]; then
+  for name in $LEFT_PARAMS; do aws ssm delete-parameter --name "$name" >/dev/null 2>&1 || true; done
+  LEFT_PARAMS=$(aws ssm get-parameters-by-path --path "/${STAGE}/ghana-payments" --recursive --query 'Parameters[].Name' --output text)
+fi
 LEFT_POLICIES=$(aws iot list-policies --query "policies[?contains(policyName, '${STAGE}-ghana')].policyName" --output text)
 CLEAN=true
 [ -n "$LEFT_STACKS" ] && [ "$LEFT_STACKS" != "None" ] && { echo -e "${RED}Stacks remaining: $LEFT_STACKS${NC}"; CLEAN=false; }
