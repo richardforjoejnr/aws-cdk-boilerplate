@@ -4,498 +4,140 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AWS serverless boilerplate built with TypeScript, AWS CDK, AppSync GraphQL API, DynamoDB, Lambda, Step Functions, and React. Features multi-environment support (dev/test/prod), monorepo architecture with npm workspaces, and GitHub Actions CI/CD with PR preview environments.
+A monorepo of **self-contained AWS serverless applications**. Each app under `apps/` owns
+everything it needs — its own CDK app, infrastructure stacks, Lambda code, web frontend,
+deploy/destroy scripts, dependencies, and CI/CD pipelines. Apps do **not** share code or
+infrastructure with each other.
+
+The guiding principle: **any app can be copied out to its own repository and still work**,
+without dragging along anything specific to another app.
+
+## Repository Structure
+
+```
+apps/
+├── ghana-payments/     # Ghana digital payments PoC (API Gateway + Lambda + DynamoDB + IoT soundbox)
+├── jira-dashboard/     # Jira analytics (CSV upload → Step Functions → dashboard)
+└── balance-booking/    # Pilates studio booking (Cognito + AppSync + DynamoDB + React)
+
+scripts/                # Repo-level helpers only (init-claude, setup-aws-access)
+.github/workflows/      # Per-app pipelines: <app>-deploy.yml / -destroy.yml / -pr-preview.yml
+                        # plus ci.yml (lint/build/test) and Claude workflows
+```
+
+There is **no shared `packages/` layer** and **no monolithic deploy pipeline** — those were
+removed. Each app is the unit of deployment.
+
+## Anatomy of an App
+
+Every app under `apps/<name>/` is structured the same way and is independently deployable:
+
+```
+apps/<name>/
+├── bin/app.ts          # The app's own CDK entry — instantiates ONLY this app's stacks
+├── lib/                # CDK stack definitions for this app
+├── src/                # Lambda function source (TypeScript, bundled by NodejsFunction/esbuild)
+├── web-app/            # Frontend (React/Vite or static), if the app has one
+├── scripts/            # deploy.sh / destroy.sh and app-specific helpers
+├── cdk.json            # `npx tsx bin/app.ts` — tsx runs the ESM CDK app directly
+├── tsconfig.json       # Self-contained (does NOT extend a root tsconfig)
+└── package.json        # Own deps, including aws-cdk-lib, aws-cdk, tsx, esbuild
+```
+
+Key conventions that keep apps self-contained and extractable:
+
+- **Own CDK app.** `bin/app.ts` instantiates only that app's stacks, so `cdk deploy --all`
+  from inside the app can never touch another app.
+- **Stage from `process.env.STAGE`** (default `dev`), stacks named `${stage}-<app>-*`.
+- **`tsx`, not `ts-node`.** `cdk.json` runs `npx tsx bin/app.ts` for reliable ESM.
+- **Own dependencies.** Every AWS SDK client a Lambda imports must be in that app's
+  `package.json` — nothing relies on monorepo hoisting.
+- **Relative asset paths stay inside the app** (e.g. `../src/...`, `../web-app/dist`).
 
 ## Common Commands
 
-### Build & Test
+Root scripts operate across all apps via npm workspaces (`apps/*`):
+
 ```bash
-npm install                    # Install all dependencies (monorepo)
-npm run build                  # Build all packages (TypeScript compilation)
-npm run test                   # Run tests across all packages
-npm run lint                   # Lint TypeScript files
-npm run format                 # Format code with Prettier
+npm install            # Install all app dependencies (workspaces)
+npm run build          # Typecheck/build every app (--workspaces --if-present)
+npm run test           # Run every app's tests
+npm run lint           # ESLint across the repo
+npm run format         # Prettier
 ```
 
-### Deployment
+**Per-app deploy/destroy** — always run from inside the app (or via its workflow):
 
-**Smart Deployment (Recommended):**
 ```bash
-npm run deploy:dev             # Deploy to dev (with auto-cleanup)
-npm run deploy:test            # Deploy to test (with auto-cleanup)
-npm run deploy:prod            # Deploy to prod (with auto-cleanup)
-npm run deploy:dev:webapp      # Deploy dev + web app
+cd apps/<name>
+STAGE=dev ./scripts/deploy.sh dev      # deploy this app to an environment
+STAGE=dev ./scripts/destroy.sh dev     # destroy this app's stacks for an environment
+npm run build                          # typecheck this app
+npx cdk diff                           # preview changes (from the app dir)
 ```
 
-**Standard Deployment:**
-```bash
-cd packages/infrastructure
-STAGE=dev npx cdk deploy --all # Deploy specific environment
-npx cdk deploy {stack-name}    # Deploy single stack
-npx cdk diff                   # Preview changes
-npx cdk synth                  # Synthesize CloudFormation
-```
-
-**Web App Only:**
-```bash
-npm run deploy:webapp:dev      # Deploy frontend to S3+CloudFront
-npm run webapp:config:dev      # Generate .env from CDK outputs
-npm run webapp:dev             # Local dev server
-```
-
-**Jira Dashboard:**
-```bash
-npm run jira:deploy:dev        # Deploy Jira dashboard stack
-npm run jira:destroy:dev       # Destroy Jira dashboard stack
-```
-
-### Destroy & Cleanup
-```bash
-npm run destroy:dev            # Destroy all dev stacks
-npm run cleanup:orphaned:dev   # Clean orphaned resources (DynamoDB, logs)
-npm run cleanup:failed:dev     # Remove failed CloudFormation stacks
-npm run validate:dev           # Validate deployment health
-```
-
-### Drift Detection
-```bash
-npm run drift:check:dev        # Detect CloudFormation drift
-npm run drift:fix:dev          # Fix drift and redeploy
-```
-
-### CDK Bootstrap
-```bash
-# First-time setup only (once per account/region)
-cd packages/infrastructure
-npx cdk bootstrap
-```
-
-## Architecture
-
-### Monorepo Structure
-```
-packages/
-├── infrastructure/    # CDK stacks (TypeScript)
-│   ├── bin/app.ts    # CDK app entry - defines all stacks
-│   └── lib/          # Stack definitions
-├── functions/        # Lambda functions (TypeScript, ESM)
-│   └── src/          # Individual function directories
-└── web-app/          # React frontend (Vite)
-    └── src/          # HTML/JS/CSS (not React despite name)
-```
-
-### CDK Stacks (Deployment Order)
-
-Stacks are deployed in dependency order by CDK. All stacks are defined in `packages/infrastructure/bin/app.ts`:
-
-1. **DatabaseStack** (`database-stack.ts`)
-   - DynamoDB tables with PAY_PER_REQUEST (dev) or PROVISIONED (prod)
-   - Global Secondary Indexes (GSI1, GSI2)
-   - DynamoDB Streams enabled
-   - Point-in-time recovery (prod)
-   - Auto-scaling (prod)
-
-2. **LambdaStack** (`lambda-stack.ts`)
-   - Hello World Lambda (demo function)
-   - Node.js 20.x runtime
-   - ES Modules format
-   - Environment variables injected: `TABLE_NAME`, `STAGE`
-
-3. **AppSyncStack** (`appsync-stack.ts`)
-   - GraphQL API with schema in `packages/infrastructure/lib/graphql/schema.graphql`
-   - DynamoDB resolvers (VTL templates)
-   - Lambda resolvers
-   - API Key + IAM authorization
-   - CRUD operations: createItem, getItem, updateItem, deleteItem, listItems
-
-4. **StepFunctionsStack** (`step-functions-stack.ts`)
-   - State machine orchestration
-   - Lambda integrations
-   - Error handling and retries
-
-5. **JiraDashboardStack** (`jira-dashboard-stack.ts`)
-   - Complete Jira analytics system
-   - CSV upload processing with Step Functions
-   - API Gateway REST API
-   - 12 Lambda functions for data processing
-   - DynamoDB tables: uploads, issues
-   - S3 bucket with event notifications
-   - High-memory Lambdas (3008 MB) for batch processing
-
-6. **WebAppStack** (`web-app-stack.ts`)
-   - S3 bucket for static hosting
-   - CloudFront CDN distribution
-   - Automatic deployment from `packages/web-app/dist/`
-   - Only deployed when `DEPLOY_WEBAPP=true` or `--webapp` flag
-
-### Environment Configuration
-
-Environments are controlled via `STAGE` environment variable and CDK context in `bin/app.ts`:
-
-- **dev**: Pay-per-request, no deletion protection, DESTROY removal policy
-- **test**: Provisioned capacity, deletion protection, RETAIN removal policy
-- **prod**: Provisioned capacity, deletion protection, RETAIN removal policy, auto-scaling
-
-**Environment detection:**
-```typescript
-const isProdLike = stage === 'prod' || stage === 'test';
-```
-
-**PR Preview Environments:**
-- Named `pr-{number}` (e.g., `pr-123`)
-- Treated as dev-like environments
-- Auto-created/destroyed by `.github/workflows/pr-preview.yml`
-
-### Lambda Functions
-
-All functions are in `packages/functions/src/` with ES Modules format:
-
-**Main Functions:**
-- `hello-world/` - Demo Lambda with DynamoDB integration
-- `dynamodb-stream-handler/` - Processes DynamoDB stream events
-
-**Jira Dashboard Functions (12 total):**
-- `jira-csv-processor/` - Initial CSV upload (3008 MB, 15 min timeout)
-- `jira-process-batch/` - Batch processing via Step Functions (500 rows/batch)
-- `jira-start-processing/` - S3 trigger for Step Functions
-- `jira-finalize-upload/` - Workflow completion
-- `jira-get-upload-url/` - Presigned S3 URLs
-- `jira-get-dashboard-data/` - Aggregated metrics
-- `jira-get-historical-data/` - Trend analysis
-- `jira-list-uploads/` - List uploads
-- `jira-delete-upload/` - Delete upload and data
-- `jira-get-upload-status/` - Check processing status
-- `get-costs/` - AWS Cost Explorer integration
-
-**Build Process:**
-- Functions are compiled from TypeScript to JavaScript
-- CDK uses `esbuild` for bundling
-- Output: `packages/functions/dist/{function-name}/`
-
-### GraphQL Schema
-
-Located at `packages/infrastructure/lib/graphql/schema.graphql`. Uses AppSync VTL resolvers for DynamoDB operations.
-
-**Key patterns:**
-- Single-table design with composite keys (`pk`, `sk`)
-- VTL utilities: `$util.autoId()`, `$util.time.nowISO8601()`, `$util.dynamodb.toDynamoDBJson()`
-- Request/response mapping templates for DynamoDB transformations
-
-### Web Application
-
-**Not React** - despite the directory name, `packages/web-app/src/` contains vanilla HTML/CSS/JavaScript applications:
-- `index.html` - Main landing page
-- `jira-dashboard/` - Jira analytics dashboard with Chart.js
-
-**Build:**
-- Vite is used for bundling
-- Environment variables from `.env` files (generated by `scripts/configure-webapp.sh`)
-- Outputs to `packages/web-app/dist/`
-
-**Configuration:**
-```bash
-# Generate .env from CDK outputs
-./scripts/configure-webapp.sh dev
-
-# Creates .env with:
-VITE_STAGE=dev
-VITE_AWS_REGION=us-east-1
-VITE_GRAPHQL_API_URL=https://...
-VITE_GRAPHQL_API_KEY=da2-...
-```
-
-## Important Scripts
-
-All scripts are in `scripts/` directory:
-
-**Deployment:**
-- `deploy-with-cleanup.sh {stage}` - Smart deployment with pre-checks, cleanup, and validation
-- `deploy-webapp.sh {stage}` - Deploy frontend only (faster iteration)
-- `configure-webapp.sh {stage}` - Generate web app .env from CloudFormation outputs
-
-**Cleanup:**
-- `cleanup-orphaned-resources.sh {stage}` - Remove non-CloudFormation resources (DynamoDB tables, CloudWatch logs)
-- `cleanup-failed-stacks.sh {stage}` - Delete failed stacks
-- `cleanup-all-pr-environments.sh` - Bulk cleanup of all PR environments
-
-**Drift Management:**
-- `fix-cloudformation-drift.sh {stage}` - Detect drift between CloudFormation and actual AWS state
-- `fix-drift-and-redeploy.sh {stage}` - Fix drift and redeploy
-
-**Data Management:**
-- `backup-table.sh {stage} {table-name}` - Backup DynamoDB table to JSON
-- `restore-table.sh {stage} {table-name}` - Restore DynamoDB table from backup
-- `import-all-tables.sh {stage}` - Import existing tables into CloudFormation management
-
-**Monitoring:**
-- `validate-deployment.sh {stage}` - Verify deployment health
-- `monitor-dynamodb-costs.sh {stage}` - DynamoDB cost analysis
-
-## Key Conventions
-
-### Naming
-- **Stacks**: `{stage}-aws-boilerplate-{service}` (e.g., `dev-aws-boilerplate-database`)
-- **Resources**: `{stage}-{resource-name}` (e.g., `dev-main-table`)
-- **PR Environments**: `pr-{number}` (e.g., `pr-123-aws-boilerplate-database`)
-
-### Tags
-All resources are tagged:
-- `Project: AWS-Boilerplate`
-- `Environment: {stage}`
-- `ManagedBy: CDK`
-
-### Single-Table Design (DynamoDB)
-Use composite keys for flexible access patterns:
-```
-pk (partition key) | sk (sort key) | attributes
-{uuid}            | ITEM          | name, description, createdAt, updatedAt
-```
-
-### CloudFormation Drift
-**What is drift?** When actual AWS resources differ from CloudFormation state.
-
-**Common causes:**
-- Manual changes via AWS console
-- Resources deleted outside CloudFormation
-- Orphaned resources from failed deployments
-
-**Prevention:**
-- Always use `deploy-with-cleanup.sh` (auto-detects drift)
-- Run `drift:check` before manual deployments
-- Use scripts for all resource operations
+Each app's `scripts/deploy.sh` handles its own specifics (e.g. building the web frontend
+with the API URL after the backend deploys, seeding data, IoT policy setup). The
+`destroy.sh` for `jira-dashboard` and `ghana-payments` prompts for the stage name on
+`prod`/`test`; pipe it in for automation (`echo prod | ./scripts/destroy.sh prod`).
 
 ## CI/CD (GitHub Actions)
 
-### Workflows
+Pipelines are **per app**, path-scoped so a change to one app never deploys another:
 
-1. **`.github/workflows/deploy.yml`**
-   - Manual deployment to dev/test/prod
-   - Runs drift detection and cleanup
-   - Saves deployment outputs as artifacts
+- `.github/workflows/<app>-deploy.yml` — manual `workflow_dispatch` deploy to dev/test/prod.
+- `.github/workflows/<app>-destroy.yml` — manual destroy (type `DESTROY` to confirm).
+- `.github/workflows/<app>-pr-preview.yml` — auto-creates a `pr-<n>` environment on PRs that
+  touch `apps/<name>/**`, destroys it on close.
+- `.github/workflows/ci.yml` — lint/build/test on every PR.
 
-2. **`.github/workflows/destroy.yml`**
-   - Manual destruction of environments
-   - Requires typing "DESTROY" to confirm
-   - Production warning
+Each workflow does `cd apps/<name> && ./scripts/deploy.sh` and is filtered with a
+`paths:` allow-list of `apps/<name>/**`.
 
-3. **`.github/workflows/pr-preview.yml`**
-   - Auto-creates `pr-{number}` environment on PR open/update
-   - Backs up/restores DynamoDB data between updates
-   - Posts deployment URLs in PR comments
-   - Auto-destroys on PR close
+### GitHub Secrets
+- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`
 
-4. **`.github/workflows/ci.yml`**
-   - Runs on all PRs
-   - Linting, testing, type checking
+## Adding a New App
 
-### GitHub Secrets Required
-- `AWS_ACCESS_KEY_ID` - IAM access key
-- `AWS_SECRET_ACCESS_KEY` - IAM secret key
-- `AWS_REGION` - Default region (e.g., us-east-1)
+1. Create `apps/<name>/` following the anatomy above (copy an existing app as a template).
+2. Give it its own `bin/app.ts`, `cdk.json` (`npx tsx bin/app.ts`), self-contained
+   `tsconfig.json`, and a `package.json` with `aws-cdk-lib`, `aws-cdk`, `tsx`, `esbuild`
+   plus whatever AWS SDK clients its Lambdas import.
+3. Name stacks `${stage}-<name>-*` and read stage from `process.env.STAGE`.
+4. Add `scripts/deploy.sh` and `scripts/destroy.sh`.
+5. Add three workflows `<name>-deploy.yml` / `-destroy.yml` / `-pr-preview.yml`,
+   path-scoped to `apps/<name>/**`.
+6. `npm install` at the root picks it up as a workspace automatically.
 
-## Development Workflow
+## Extracting an App to Its Own Repo
 
-### Adding a New Lambda Function
+Because each app is self-contained, extraction is a copy:
 
-1. Create function directory:
-```bash
-mkdir packages/functions/src/my-function
-```
+1. Copy `apps/<name>/` to a new directory (exclude `node_modules`, `dist`, `cdk.out`).
+2. Remove the `workspaces` field from the copied `package.json` (it's now standalone).
+3. `npm install` — the app already declares all its own dependencies.
+4. `git init` and deploy with `./scripts/deploy.sh`.
 
-2. Create handler with ES Modules:
-```typescript
-// packages/functions/src/my-function/index.ts
-export const handler = async (event: any) => {
-  // Function logic
-  return { statusCode: 200, body: JSON.stringify({ message: 'Success' }) };
-};
-```
+Nothing app-specific to another app comes along, because nothing is shared.
 
-3. Add to appropriate stack (e.g., `LambdaStack`):
-```typescript
-const myFunction = new lambda.Function(this, 'MyFunction', {
-  runtime: lambda.Runtime.NODEJS_20_X,
-  handler: 'index.handler',
-  code: lambda.Code.fromAsset('../../functions/dist/my-function'),
-  environment: {
-    TABLE_NAME: props.mainTable.tableName,
-    STAGE: stage,
-  },
-});
-```
+## Conventions
 
-4. Build and deploy:
-```bash
-npm run build
-npm run deploy:dev
-```
-
-### Adding a GraphQL Operation
-
-1. Update schema in `packages/infrastructure/lib/graphql/schema.graphql`
-2. Create resolver in `AppSyncStack`
-3. Write VTL request/response mapping templates
-4. Deploy: `npm run deploy:dev`
-
-### Modifying Infrastructure
-
-1. Edit CDK stack files in `packages/infrastructure/lib/`
-2. Preview changes: `cd packages/infrastructure && npx cdk diff`
-3. Deploy: `npm run deploy:dev`
-
-### Frontend Changes
-
-For faster iteration on frontend-only changes:
-```bash
-npm run deploy:webapp:dev  # Deploy frontend only (skips infrastructure)
-```
-
-## Troubleshooting
-
-### "Resource already exists" Error
-Run cleanup before deployment:
-```bash
-npm run cleanup:orphaned:dev
-npm run cleanup:failed:dev
-```
-
-### "Stack is in UPDATE_ROLLBACK_COMPLETE"
-Delete failed stack:
-```bash
-npm run cleanup:failed:dev
-```
-
-### Web App Shows Old Version
-CloudFront cache invalidation is automatic on deployment, but can take 5-10 minutes. Manual invalidation:
-```bash
-aws cloudfront create-invalidation --distribution-id {id} --paths "/*"
-```
-
-### GraphQL "Not Authorized" Error
-API key may be expired (365 day lifetime). Redeploy AppSync stack to generate new key:
-```bash
-cd packages/infrastructure
-STAGE=dev npx cdk deploy dev-aws-boilerplate-appsync
-```
-
-### Build Failures
-```bash
-# Clean and rebuild
-rm -rf node_modules package-lock.json
-rm -rf packages/*/node_modules packages/*/dist
-npm install
-npm run build
-```
-
-### Drift Detected
-Fix drift automatically:
-```bash
-npm run drift:fix:dev  # Detects drift, imports resources, redeploys
-```
-
-## Testing
-
-### Unit Tests
-```bash
-npm run test                           # Run all tests
-npm run test --workspace=@aws-boilerplate/functions  # Test specific package
-```
-
-### Manual Testing
-
-**Test Lambda directly:**
-```bash
-aws lambda invoke \
-  --function-name dev-hello-world \
-  --payload '{"name": "Test"}' \
-  response.json && cat response.json
-```
-
-**Test GraphQL API:**
-```bash
-# Get API details
-./scripts/configure-webapp.sh dev
-cat packages/web-app/.env.dev
-
-# Test with curl
-curl -X POST "$VITE_GRAPHQL_API_URL" \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: $VITE_GRAPHQL_API_KEY" \
-  -d '{"query": "query { listItems { pk name } }"}'
-```
-
-**Check CloudWatch Logs:**
-```bash
-aws logs tail /aws/lambda/dev-hello-world --follow
-```
-
-## Cost Optimization
-
-- **Dev environment**: Pay-per-request billing, minimal resources
-- **Prod environment**: Provisioned capacity with auto-scaling
-- **PR environments**: Auto-cleanup on PR close
-- **Orphaned resource cleanup**: Automated scripts prevent zombie resources
-- **S3 lifecycle policies**: Glacier archival for old data (prod)
-
-## Important Notes
-
-- **ES Modules**: All Lambda functions use ES Modules (`type: "module"` in package.json)
-- **Node.js 20.x**: All Lambda functions use Node.js 20.x runtime
-- **TypeScript strict mode**: Enabled across all packages
-- **Monorepo**: Use `npm run {script} --workspace=@aws-boilerplate/{package}` for package-specific commands
-- **CDK Context**: Stage is set via `STAGE` environment variable, not CDK context parameters
-- **Web App Deployment**: Only deployed with explicit `DEPLOY_WEBAPP=true` or `--webapp` flag
-
-## Useful AWS CLI Commands
-
-```bash
-# List all stacks for an environment
-aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE
-
-# Describe specific stack
-aws cloudformation describe-stacks --stack-name dev-aws-boilerplate-database
-
-# Get stack outputs
-aws cloudformation describe-stacks --stack-name dev-aws-boilerplate-appsync \
-  --query 'Stacks[0].Outputs'
-
-# Check DynamoDB table
-aws dynamodb describe-table --table-name dev-main-table
-
-# List Lambda functions
-aws lambda list-functions --query 'Functions[?starts_with(FunctionName, `dev-`)].FunctionName'
-```
+- **Stack names:** `${stage}-<app>-<service>` (e.g. `dev-ghana-payments-api`).
+- **Stages:** `dev` (pay-per-request, DESTROY policy), `test`/`prod` (provisioned,
+  deletion protection, RETAIN). PR previews are `pr-<n>`, dev-like.
+- **Runtime:** Node.js 20.x, ES Modules, TypeScript strict mode.
+- **Tags:** `App`, `Environment`, `ManagedBy: CDK`.
 
 ## AWS Authentication
 
-Authentication is configured using IAM access keys for both local development and GitHub Actions CI/CD.
+IAM access keys for local dev and GitHub Actions.
+- Account: set via `aws configure` / `AWS_ACCOUNT_ID` (do not commit real account IDs).
+- IAM user: `cdk-deployer`, region `us-east-1`.
+- Verify: `aws sts get-caller-identity`.
+- First-time per account/region: `cd apps/<name> && npx cdk bootstrap`.
 
-**Current Setup:**
-- **AWS Account:** `<your-account-id>` (set via `aws configure` / `AWS_ACCOUNT_ID` env var; do not commit real account IDs)
-- **IAM User:** cdk-deployer
-- **Region:** us-east-1
+## Per-App Documentation
 
-**Local Development:**
-- Credentials stored in `~/.aws/credentials`
-- Verify: `aws sts get-caller-identity`
-
-**GitHub Actions:**
-- Uses repository secrets: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`
-- Configured in `.github/workflows/deploy.yml`
-
-**See:** `AWS_AUTHENTICATION_GUIDE.md` for complete authentication documentation, including:
-- Credential chain and authentication flow
-- IAM permissions required for each CDK stack
-- Security best practices and credential rotation
-- Troubleshooting authentication issues
-- OIDC setup (recommended for production)
-
-## Additional Documentation
-
-- `README.md` - Quick start and feature overview
-- `ARCHITECTURE.md` - Detailed architecture documentation (1100+ lines)
-- `TECH_STACK.md` - Complete technology stack reference
-- `AWS_AUTHENTICATION_GUIDE.md` - Complete AWS authentication and IAM guide
-- `scripts/README.md` - Deployment scripts documentation
-- `packages/infrastructure/lib/` - CDK stack implementation details
-- `packages/ghana-payments/docs/concept.md` - Ghana street vendor digital payments & soundbox platform spec (PoC in planning; see `packages/ghana-payments/CLAUDE.md`)
+Each app carries its own docs under `apps/<name>/` (READMEs, runbooks, device setup, etc.).
+Start there for app-specific architecture and operations. `apps/ghana-payments/docs/`
+in particular has `CODE_TOUR.md`, `DEVICE_SETUP.md`, and `RUNBOOK.md`.
