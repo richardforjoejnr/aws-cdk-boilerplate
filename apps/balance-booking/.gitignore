@@ -1,0 +1,7 @@
+node_modules/
+dist/
+cdk.out/
+*.tsbuildinfo
+web-app/dist/
+.env.*
+.balance-*

@@ -5,14 +5,12 @@ on:
     types: [opened, synchronize, reopened, closed]
     branches: [main, develop]
     paths:
-      - 'packages/balance-booking-web/**'
-      - 'packages/functions/src/balance-booking/**'
-      - 'packages/infrastructure/lib/balance-booking/**'
+      - 'apps/balance-booking/**'
+      - 'apps/balance-booking/**'
+      - 'apps/balance-booking/**'
       # bin/app.ts deliberately NOT listed: it's shared, so every new project added
       # to the CDK app would otherwise trigger a balance preview forever
       - 'scripts/configure-balance-webapp.sh'
-      - 'scripts/deploy-balance-booking.sh'
-      - 'scripts/destroy-balance-booking.sh'
       # NOT self-referencing: listing balance-booking-*.yml here made any PR that
       # edits this workflow (e.g. tightening these very filters) trigger balance
       # previews on every push. Workflow changes can be preview-tested manually.
@@ -57,7 +55,7 @@ jobs:
           echo "env_name=${ENV_NAME}" >> $GITHUB_OUTPUT
 
       - name: Make scripts executable
-        run: chmod +x scripts/*.sh
+        run: chmod +x apps/balance-booking/scripts/*.sh
 
       - name: Deploy Balance Booking
         id: deploy
@@ -66,7 +64,7 @@ jobs:
           ADMIN_EMAIL: admin+${{ steps.env-name.outputs.env_name }}@balance-booking.test
           ADMIN_PASSWORD: 'PreviewAdmin1!'
         run: |
-          ./scripts/deploy-balance-booking.sh "$STAGE" \
+          cd apps/balance-booking && ./scripts/deploy.sh "$STAGE" \
             --seed \
             --admin-email "$ADMIN_EMAIL" \
             --admin-password "$ADMIN_PASSWORD"
@@ -163,12 +161,12 @@ jobs:
           echo "env_name=${ENV_NAME}" >> $GITHUB_OUTPUT
 
       - name: Make scripts executable
-        run: chmod +x scripts/*.sh
+        run: chmod +x apps/balance-booking/scripts/*.sh
 
       - name: Destroy Balance Booking stacks
         env:
           STAGE: ${{ steps.env-name.outputs.env_name }}
-        run: ./scripts/destroy-balance-booking.sh "$STAGE"
+        run: cd apps/balance-booking && ./scripts/destroy.sh "$STAGE"
 
       - name: Comment on PR
         uses: actions/github-script@v7

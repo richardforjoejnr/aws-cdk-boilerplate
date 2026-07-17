@@ -53,9 +53,6 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -64,7 +61,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Make scripts executable
-        run: chmod +x scripts/*.sh
+        run: chmod +x apps/ghana-payments/scripts/*.sh
 
       - name: Destroy and clean up everything
         env:
@@ -74,4 +71,4 @@ jobs:
         # remains — fails the job if anything is left. Writes its own step summary.
         run: |
           # CI is non-interactive; the script's prod-like prompt reads from stdin
-          echo "${STAGE}" | ./scripts/destroy-ghana-payments.sh "$STAGE"
+          cd apps/ghana-payments && echo "${STAGE}" | ./scripts/destroy.sh "$STAGE"

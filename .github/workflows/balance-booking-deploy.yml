@@ -55,7 +55,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Make scripts executable
-        run: chmod +x scripts/*.sh
+        run: chmod +x apps/balance-booking/scripts/*.sh
 
       - name: Deploy
         id: deploy
@@ -70,7 +70,7 @@ jobs:
           if [ -n "$ADMIN_EMAIL" ]; then
             ARGS+=("--admin-email" "$ADMIN_EMAIL")
           fi
-          ./scripts/deploy-balance-booking.sh "${ARGS[@]}"
+          cd apps/balance-booking && ./scripts/deploy.sh "${ARGS[@]}"
           if [ -f ".balance-booking-outputs-${STAGE}.json" ]; then
             WEB_URL=$(jq -r '.webUrl' ".balance-booking-outputs-${STAGE}.json")
             echo "web_url=${WEB_URL}" >> $GITHUB_OUTPUT

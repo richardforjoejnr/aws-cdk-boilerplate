@@ -1,0 +1,32 @@
+{
+  "name": "balance-booking",
+  "version": "0.1.0",
+  "description": "Balance Booking (Pilates studio booking) — self-contained AWS serverless app (CDK)",
+  "type": "module",
+  "private": true,
+  "bin": { "balance-booking": "bin/app.ts" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "test": "jest --passWithNoTests",
+    "synth": "cdk synth",
+    "diff": "cdk diff",
+    "deploy": "./scripts/deploy.sh",
+    "destroy": "./scripts/destroy.sh"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1085.0",
+    "@aws-sdk/lib-dynamodb": "^3.1085.0",
+    "aws-cdk-lib": "^2.160.0",
+    "constructs": "^10.3.0",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^20.14.0",
+    "@types/uuid": "^9.0.8",
+    "aws-cdk": "^2.160.0",
+    "esbuild": "^0.24.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

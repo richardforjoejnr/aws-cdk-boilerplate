@@ -1,0 +1,40 @@
+name: Jira Dashboard — Manual Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: 'Environment to deploy to'
+        required: true
+        type: choice
+        options: [dev, test, prod]
+        default: dev
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '20'
+  AWS_REGION: 'us-east-1'
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.stage }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.stage }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - run: chmod +x apps/jira-dashboard/scripts/*.sh
+      - name: Deploy
+        env:
+          STAGE: ${{ inputs.stage }}
+        run: cd apps/jira-dashboard && ./scripts/deploy.sh "${{ inputs.stage }}"
