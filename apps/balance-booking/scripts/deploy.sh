@@ -75,7 +75,9 @@ echo -e "${BLUE}🔧 Configuring web app env from CFN outputs${NC}"
 echo ""
 
 echo -e "${BLUE}🏗️  Building web app${NC}"
-(cd web-app && npx tsc -b && npx vite build --mode "$STAGE")
+# web-app is a nested package (not part of the root apps/* workspace), so install its own
+# deps before building — otherwise imports like @tanstack/react-query fail to resolve.
+(cd web-app && npm install --no-audit --no-fund && npx tsc -b && npx vite build --mode "$STAGE")
 echo -e "${GREEN}✓ Web app built${NC}\n"
 
 echo -e "${BLUE}🚀 Pass 2: deploy web stack${NC}"
