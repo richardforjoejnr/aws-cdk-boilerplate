@@ -54,7 +54,7 @@ export class BalanceBookingWebStack extends cdk.Stack {
         : cloudfront.PriceClass.PRICE_CLASS_100,
     });
 
-    const distPath = path.join(__dirname, '../../../balance-booking-web/dist');
+    const distPath = path.join(__dirname, '../web-app/dist');
     if (fs.existsSync(distPath)) {
       new s3deploy.BucketDeployment(this, 'DeployWeb', {
         sources: [s3deploy.Source.asset(distPath)],

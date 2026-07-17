@@ -52,7 +52,7 @@ ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 echo -e "${GREEN}✓ AWS account ${ACCOUNT_ID}${NC}\n"
 
 echo -e "${BLUE}🔧 CDK bootstrap (idempotent)...${NC}"
-(cd packages/infrastructure && npx cdk bootstrap "aws://${ACCOUNT_ID}/${REGION}" --require-approval never 2>&1) \
+(cd "$(dirname "$0")/.." && npx cdk bootstrap "aws://${ACCOUNT_ID}/${REGION}" --require-approval never 2>&1) \
   || echo "Bootstrap already exists or continuing"
 echo ""
 
@@ -61,7 +61,7 @@ npm run build
 echo -e "${GREEN}✓ Build OK${NC}\n"
 
 echo -e "${BLUE}🚀 Pass 1: deploy backend stacks${NC}"
-(cd packages/infrastructure && \
+(cd "$(dirname "$0")/.." && \
   STAGE="$STAGE" npx cdk deploy \
     "${PREFIX}-auth" \
     "${PREFIX}-data" \
@@ -71,15 +71,15 @@ echo -e "${BLUE}🚀 Pass 1: deploy backend stacks${NC}"
 echo ""
 
 echo -e "${BLUE}🔧 Configuring web app env from CFN outputs${NC}"
-./scripts/configure-balance-webapp.sh "$STAGE"
+"$(dirname "$0")/configure-webapp.sh" "$STAGE"
 echo ""
 
 echo -e "${BLUE}🏗️  Building web app${NC}"
-(cd packages/balance-booking-web && npx tsc -b && npx vite build --mode "$STAGE")
+(cd web-app && npx tsc -b && npx vite build --mode "$STAGE")
 echo -e "${GREEN}✓ Web app built${NC}\n"
 
 echo -e "${BLUE}🚀 Pass 2: deploy web stack${NC}"
-(cd packages/infrastructure && \
+(cd "$(dirname "$0")/.." && \
   DEPLOY_BALANCE_WEB=true STAGE="$STAGE" npx cdk deploy \
     "${PREFIX}-web" \
     --require-approval never)
@@ -87,9 +87,9 @@ echo ""
 
 # Re-run configure to pick up the now-known WebUrl and re-write env (so OAuth redirects point to CloudFront)
 echo -e "${BLUE}🔁 Re-configuring web env with CloudFront URL${NC}"
-./scripts/configure-balance-webapp.sh "$STAGE"
-(cd packages/balance-booking-web && npx tsc -b && npx vite build --mode "$STAGE")
-(cd packages/infrastructure && \
+"$(dirname "$0")/configure-webapp.sh" "$STAGE"
+(cd web-app && npx tsc -b && npx vite build --mode "$STAGE")
+(cd "$(dirname "$0")/.." && \
   DEPLOY_BALANCE_WEB=true STAGE="$STAGE" npx cdk deploy \
     "${PREFIX}-web" \
     --require-approval never)

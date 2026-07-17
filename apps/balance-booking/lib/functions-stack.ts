@@ -51,7 +51,7 @@ export class BalanceBookingFunctionsStack extends cdk.Stack {
         functionName: `${stage}-balance-booking-${name}`,
         runtime: lambda.Runtime.NODEJS_20_X,
         handler: 'handler',
-        entry: path.join(__dirname, `../../../functions/src/balance-booking/${dir}/index.ts`),
+        entry: path.join(__dirname, `../src/${dir}/index.ts`),
         bundling: {
           format: nodejs.OutputFormat.ESM,
           minify: isProdLike,

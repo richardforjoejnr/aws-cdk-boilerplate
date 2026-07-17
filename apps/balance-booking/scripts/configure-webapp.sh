@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Configure balance-booking web app with backend endpoints
-# Reads CFN outputs from auth + api stacks, writes packages/balance-booking-web/.env.{stage}
+# Reads CFN outputs from auth + api stacks, writes web-app/.env.{stage}
 # Usage: ./configure-balance-webapp.sh [dev|test|prod|pr-N]
 
 set -e
@@ -58,7 +58,7 @@ else
   REDIRECT_SIGN_OUT="${WEB_URL}/"
 fi
 
-ENV_DIR="packages/balance-booking-web"
+ENV_DIR="web-app"
 ENV_FILE="${ENV_DIR}/.env.${STAGE}"
 
 cat > "$ENV_FILE" <<ENVEOF

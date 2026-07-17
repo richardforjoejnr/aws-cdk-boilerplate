@@ -64,12 +64,12 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Make scripts executable
-        run: chmod +x scripts/*.sh
+        run: chmod +x apps/balance-booking/scripts/*.sh
 
       - name: Destroy stacks
         env:
           STAGE: ${{ inputs.stage }}
-        run: ./scripts/destroy-balance-booking.sh "$STAGE"
+        run: cd apps/balance-booking && ./scripts/destroy.sh "$STAGE"
 
       - name: Summary
         run: |

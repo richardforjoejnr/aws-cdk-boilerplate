@@ -38,7 +38,7 @@ STACKS=(
 for stack in "${STACKS[@]}"; do
   if aws cloudformation describe-stacks --stack-name "$stack" --region "$REGION" >/dev/null 2>&1; then
     echo -e "${YELLOW}→ Destroying ${stack}${NC}"
-    (cd packages/infrastructure && \
+    (cd "$(dirname "$0")/.." && \
       DEPLOY_BALANCE_WEB=true STAGE="$STAGE" npx cdk destroy "$stack" --force) || \
       echo -e "${RED}⚠️  Destroy of ${stack} failed — continuing${NC}"
   else
