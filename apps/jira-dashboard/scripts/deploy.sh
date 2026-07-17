@@ -31,6 +31,14 @@ echo -e "${GREEN}✓ Jira Dashboard deployed to ${STAGE}${NC}"
 echo -e "Dashboard: ${GREEN}${WEB_URL}/jira-dashboard.html${NC}"
 echo -e "API:       ${API_URL}"
 
+if [ -n "${GITHUB_OUTPUT:-}" ]; then
+  {
+    echo "dashboard_url=${WEB_URL}/jira-dashboard.html"
+    echo "web_url=${WEB_URL}"
+    echo "api_url=${API_URL}"
+  } >> "$GITHUB_OUTPUT"
+fi
+
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
   {
     echo "## 📊 Jira Dashboard deployed to ${STAGE}"

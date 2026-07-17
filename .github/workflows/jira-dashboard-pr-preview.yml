@@ -42,9 +42,23 @@ jobs:
           STAGE: pr-${{ github.event.pull_request.number }}
         run: cd apps/jira-dashboard && ./scripts/deploy.sh "pr-${{ github.event.pull_request.number }}"
       - uses: actions/github-script@v7
+        env:
+          DASHBOARD_URL: ${{ steps.deploy.outputs.dashboard_url }}
+          API_URL: ${{ steps.deploy.outputs.api_url }}
         with:
           script: |
-            const body = `## 📊 Jira Dashboard preview deployed\n\n**Environment:** pr-${context.issue.number}\n\n> Destroyed automatically when the PR is merged or closed.`;
+            const dashboard = process.env.DASHBOARD_URL;
+            const api = process.env.API_URL;
+            const body = [
+              '## 📊 Jira Dashboard preview deployed',
+              '',
+              `**Environment:** pr-${context.issue.number}`,
+              '',
+              dashboard ? `**Dashboard:** ${dashboard}` : '',
+              api ? `**API:** ${api}` : '',
+              '',
+              '> Destroyed automatically when the PR is merged or closed.',
+            ].filter(Boolean).join('\n');
             const { data: comments } = await github.rest.issues.listComments({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number });
             const existing = comments.find(c => c.body.includes('Jira Dashboard preview deployed'));
             if (existing) await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body });
