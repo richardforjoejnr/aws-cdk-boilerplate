@@ -1,0 +1,49 @@
+name: Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: 'Environment to destroy'
+        required: true
+        type: choice
+        options: [dev, test, prod]
+      confirm:
+        description: 'Type DESTROY to confirm'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: 'us-east-1'
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation
+        run: |
+          [ "${{ inputs.confirm }}" = "DESTROY" ] || { echo "::error::Type DESTROY to confirm"; exit 1; }
+
+  destroy:
+    needs: guard
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.stage }}-destroy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - run: npm ci
+      - run: chmod +x scripts/*.sh
+      - env:
+          STAGE: ${{ inputs.stage }}
+        run: echo "${{ inputs.stage }}" | ./scripts/destroy.sh "${{ inputs.stage }}"

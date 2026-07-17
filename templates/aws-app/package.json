@@ -1,0 +1,37 @@
+{
+  "name": "__APP_NAME__",
+  "version": "0.1.0",
+  "description": "__APP_TITLE__ — AWS serverless app (API Gateway + Lambda + DynamoDB, CDK)",
+  "type": "module",
+  "private": true,
+  "bin": { "__APP_NAME__": "bin/app.ts" },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest --passWithNoTests",
+    "lint": "eslint . --ext .ts",
+    "synth": "cdk synth",
+    "diff": "cdk diff",
+    "deploy": "./scripts/deploy.sh",
+    "destroy": "./scripts/destroy.sh"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.700.0",
+    "@aws-sdk/lib-dynamodb": "^3.700.0",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.14.0",
+    "@types/uuid": "^9.0.8",
+    "aws-cdk": "^2.160.0",
+    "aws-cdk-lib": "^2.160.0",
+    "aws-sdk-client-mock": "^4.1.0",
+    "constructs": "^10.3.0",
+    "esbuild": "^0.24.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
