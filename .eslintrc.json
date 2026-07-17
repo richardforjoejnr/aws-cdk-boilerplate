@@ -5,9 +5,7 @@
     "ecmaVersion": 2022,
     "sourceType": "module",
     "project": [
-      "./tsconfig.json",
-      "./packages/*/tsconfig.json",
-      "./packages/*/tsconfig.node.json"
+      "./apps/*/tsconfig.json"
     ]
   },
   "plugins": ["@typescript-eslint"],
@@ -35,6 +33,6 @@
     "*.js",
     "vite.config.ts",
     "tests/",
-    "packages/db/src/migrations/"
+    "apps/*/web-app/"
   ]
 }
