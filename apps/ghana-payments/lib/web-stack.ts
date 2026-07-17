@@ -89,7 +89,7 @@ function handler(event) {
     });
 
     new s3deploy.BucketDeployment(this, 'PortalDeployment', {
-      sources: [s3deploy.Source.asset(path.join(__dirname, '../../../ghana-payments/web'))],
+      sources: [s3deploy.Source.asset(path.join(__dirname, '../web'))],
       destinationBucket: siteBucket,
       distribution,
       distributionPaths: ['/*'],

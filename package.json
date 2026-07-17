@@ -5,7 +5,8 @@
   "type": "module",
   "private": true,
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   "scripts": {
     "setup": "npm install && node scripts/init-claude.cjs",
@@ -52,12 +53,6 @@
     "jira:destroy:dev": "./scripts/destroy-jira-dashboard.sh dev",
     "jira:destroy:test": "./scripts/destroy-jira-dashboard.sh test",
     "jira:destroy:prod": "./scripts/destroy-jira-dashboard.sh prod",
-    "ghana:deploy:dev": "./scripts/deploy-ghana-payments.sh dev",
-    "ghana:deploy:test": "./scripts/deploy-ghana-payments.sh test",
-    "ghana:deploy:prod": "./scripts/deploy-ghana-payments.sh prod",
-    "ghana:destroy:dev": "./scripts/destroy-ghana-payments.sh dev",
-    "ghana:destroy:test": "./scripts/destroy-ghana-payments.sh test",
-    "ghana:destroy:prod": "./scripts/destroy-ghana-payments.sh prod",
     "prepare": "husky install || true"
   },
   "devDependencies": {

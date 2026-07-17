@@ -59,6 +59,6 @@ json.dump({
 echo ""
 echo "✓ Device bundle ready: $OUT/"
 echo "  Try it now from this machine (needs speakers):"
-echo "    node packages/ghana-payments/device-client/soundbox-client.mjs $OUT"
+echo "    node device-client/soundbox-client.mjs $OUT"
 echo "  Or copy the bundle to a Raspberry Pi and run the same command there."
-echo "  ESP32 flashing guide: packages/ghana-payments/docs/DEVICE_SETUP.md"
+echo "  ESP32 flashing guide: docs/DEVICE_SETUP.md"

@@ -37,7 +37,7 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     const { stage, isProdLike, foundation } = props;
     const removalPolicy = isProdLike ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY;
     const logRetention = isProdLike ? logs.RetentionDays.ONE_MONTH : logs.RetentionDays.ONE_WEEK;
-    const srcRoot = path.join(__dirname, '../../../ghana-payments/src');
+    const srcRoot = path.join(__dirname, '../src');
 
     // Mock provider callback delay queue + DLQ (design-review F-2)
     const callbackDlq = new sqs.Queue(this, 'MockCallbackDlq', {

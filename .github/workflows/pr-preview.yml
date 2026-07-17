@@ -6,21 +6,23 @@ on:
     branches:
       - main
       - develop
-    # Core boilerplate preview only. Balance Booking and Ghana Payments have their
-    # own path-scoped preview pipelines — changes touching only those projects
-    # must not deploy (or comment about) the core stacks.
-    paths-ignore:
-      - 'packages/ghana-payments/**'
-      - 'packages/infrastructure/lib/ghana-payments/**'
-      - 'packages/balance-booking-web/**'
-      - 'packages/functions/src/balance-booking/**'
-      - 'packages/infrastructure/lib/balance-booking/**'
-      - 'scripts/*ghana*'
-      - 'scripts/*balance*'
-      - 'scripts/setup-real-device.sh'
-      - '.github/workflows/ghana-payments-*.yml'
-      - '.github/workflows/balance-booking-*.yml'
-      - 'packages/ghana-payments/docs/**'
+    # Allow-list (not ignore-list): this preview ONLY fires when the core boilerplate
+    # / Jira app's own files change. Previously it used paths-ignore and fired on
+    # any unrelated PR (e.g. adding a template), deploying the whole aws-boilerplate
+    # bundle incl. Jira. Each app now scopes its own pipeline to its own paths.
+    paths:
+      - 'packages/functions/src/jira-**'
+      - 'packages/functions/src/hello-world/**'
+      - 'packages/functions/src/dynamodb-stream-handler/**'
+      - 'packages/functions/src/get-costs/**'
+      - 'packages/web-app/**'
+      - 'packages/infrastructure/lib/jira-dashboard-stack.ts'
+      - 'packages/infrastructure/lib/database-stack.ts'
+      - 'packages/infrastructure/lib/lambda-stack.ts'
+      - 'packages/infrastructure/lib/appsync-stack.ts'
+      - 'packages/infrastructure/lib/step-functions-stack.ts'
+      - 'packages/infrastructure/lib/web-app-stack.ts'
+      - '.github/workflows/pr-preview.yml'
 
 permissions:
   id-token: write

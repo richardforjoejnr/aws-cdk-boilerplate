@@ -1,6 +1,6 @@
 # CLAUDE.md — Ghana Payments PoC
 
-Guidance for Claude Code when working in `packages/ghana-payments`.
+Guidance for Claude Code when working in `apps/ghana-payments`.
 
 ## What this is
 
@@ -10,7 +10,7 @@ An AWS serverless PoC of a digital payment orchestration + soundbox (audio payme
 
 - Planning artifacts belong in `docs/planning/` (scope, ADRs, implementation plan, test strategy). Persist agent planning outputs there.
 - Open decisions are tracked in `docs/planning/README.md` — resolve them explicitly (record as ADRs) rather than assuming.
-- No infrastructure exists yet. When it's time, add a `GhanaPaymentsStack` in `packages/infrastructure/lib/` following the `JiraDashboardStack` precedent, and wire it in `bin/app.ts`. Do not deploy anything for this project until an implementation plan is agreed.
+- No infrastructure exists yet. When it's time, add a `GhanaPaymentsStack` in `apps/ghana-payments/lib/` following the `JiraDashboardStack` precedent, and wire it in `bin/app.ts`. Do not deploy anything for this project until an implementation plan is agreed.
 
 ## PoC constraints (differ from the concept's production design)
 

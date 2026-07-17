@@ -7,10 +7,7 @@ on:
       - main
       - develop
     paths:
-      - 'packages/ghana-payments/**'
-      - 'packages/infrastructure/lib/ghana-payments/**'
-      - 'scripts/deploy-ghana-payments.sh'
-      - 'scripts/destroy-ghana-payments.sh'
+      - 'apps/ghana-payments/**'
       - '.github/workflows/ghana-payments-*.yml'
 
 permissions:
@@ -42,7 +39,6 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -52,7 +48,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Make scripts executable
-        run: chmod +x scripts/*.sh
+        run: chmod +x apps/ghana-payments/scripts/*.sh
 
       - name: Seed preview admin credentials
         id: creds
@@ -70,7 +66,7 @@ jobs:
         id: deploy
         env:
           STAGE: pr-${{ github.event.pull_request.number }}
-        run: ./scripts/deploy-ghana-payments.sh "$STAGE"
+        run: cd apps/ghana-payments && ./scripts/deploy.sh "$STAGE"
 
       - name: Comment on PR
         uses: actions/github-script@v7
@@ -124,7 +120,6 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -134,14 +129,14 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Make scripts executable
-        run: chmod +x scripts/*.sh
+        run: chmod +x apps/ghana-payments/scripts/*.sh
 
       - name: Destroy and clean up everything
         env:
           STAGE: pr-${{ github.event.pull_request.number }}
         # Detaches per-device IoT policies, destroys the stacks, removes SSM params
         # (incl. the preview admin credentials), then verifies nothing remains.
-        run: echo "$STAGE" | ./scripts/destroy-ghana-payments.sh "$STAGE"
+        run: cd apps/ghana-payments && echo "$STAGE" | ./scripts/destroy.sh "$STAGE"
 
       - name: Comment on PR
         uses: actions/github-script@v7

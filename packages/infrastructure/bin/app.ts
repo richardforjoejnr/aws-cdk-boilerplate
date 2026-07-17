@@ -13,10 +13,6 @@ import { BalanceBookingDataStack } from '../lib/balance-booking/data-stack.js';
 import { BalanceBookingFunctionsStack } from '../lib/balance-booking/functions-stack.js';
 import { BalanceBookingApiStack } from '../lib/balance-booking/api-stack.js';
 import { BalanceBookingWebStack } from '../lib/balance-booking/web-stack.js';
-import { GhanaPaymentsFoundationStack } from '../lib/ghana-payments/foundation-stack.js';
-import { GhanaPaymentsSpikeStack } from '../lib/ghana-payments/spike-stack.js';
-import { GhanaPaymentsApiStack } from '../lib/ghana-payments/api-stack.js';
-import { GhanaPaymentsWebStack } from '../lib/ghana-payments/web-stack.js';
 
 const app = new cdk.App();
 
@@ -146,55 +142,6 @@ if (deployBalanceWeb) {
   });
 }
 
-// Ghana Payments PoC — street vendor digital payment & soundbox platform
-// Design: packages/ghana-payments/docs/planning/architecture.md
-//
-// GATED: the Ghana stacks are only added to the app when DEPLOY_GHANA=true, so a
-// blanket `cdk deploy --all` (e.g. the on-merge prod deploy) does NOT create them.
-// The ghana:deploy/destroy scripts and the ghana PR-preview workflow set the flag;
-// `destroy` (any stage) also opts in so the stacks can be torn down.
-const deployGhana = process.env.DEPLOY_GHANA === 'true' || isDestroy;
-if (deployGhana) {
-  const ghanaPrefix = `${stage}-ghana-payments`;
-  // PoC decision (Richard, 2026-07-11): NO ghana stage retains data — every
-  // environment destroys to zero, prod included. Revisit before any real pilot.
-  const ghanaProdLike = false;
-  const ghanaFoundation = new GhanaPaymentsFoundationStack(app, `${ghanaPrefix}-foundation`, {
-    env,
-    description: `Ghana Payments PoC data & event layer for ${stage}`,
-    stackName: `${ghanaPrefix}-foundation`,
-    stage,
-    isProdLike: ghanaProdLike,
-  });
-
-  const ghanaApi = new GhanaPaymentsApiStack(app, `${ghanaPrefix}-api`, {
-    env,
-    description: `Ghana Payments PoC payment core (API, webhook, sweeper) for ${stage}`,
-    stackName: `${ghanaPrefix}-api`,
-    stage,
-    isProdLike: ghanaProdLike,
-    foundation: ghanaFoundation,
-  });
-
-  new GhanaPaymentsWebStack(app, `${ghanaPrefix}-web`, {
-    env,
-    description: `Ghana Payments PoC portals (CloudFront + S3 + /api routing) for ${stage}`,
-    stackName: `${ghanaPrefix}-web`,
-    stage,
-    isProdLike: ghanaProdLike,
-    apiStack: ghanaApi,
-  });
-}
-
-// Phase 0 spike (throwaway) — deployed only on explicit request
-if (process.env.DEPLOY_GHANA_SPIKE === 'true') {
-  new GhanaPaymentsSpikeStack(app, `${stage}-ghana-payments-spike`, {
-    env,
-    description: `Ghana Payments Phase 0 spike (throwaway) for ${stage}`,
-    stackName: `${stage}-ghana-payments-spike`,
-    stage,
-  });
-}
 
 // Pipeline Stack - AWS CodePipeline (disabled - using GitHub Actions instead)
 // GitHub Actions provides better integration and is already configured in .github/workflows/
