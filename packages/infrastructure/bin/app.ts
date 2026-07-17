@@ -6,8 +6,6 @@ import { DatabaseStack } from '../lib/database-stack.js';
 import { LambdaStack } from '../lib/lambda-stack.js';
 import { AppSyncStack } from '../lib/appsync-stack.js';
 import { StepFunctionsStack } from '../lib/step-functions-stack.js';
-import { WebAppStack } from '../lib/web-app-stack.js';
-import { JiraDashboardStack } from '../lib/jira-dashboard-stack.js';
 import { BalanceBookingAuthStack } from '../lib/balance-booking/auth-stack.js';
 import { BalanceBookingDataStack } from '../lib/balance-booking/data-stack.js';
 import { BalanceBookingFunctionsStack } from '../lib/balance-booking/functions-stack.js';
@@ -28,6 +26,7 @@ const env = {
 
 // Determine if this is a production-like environment
 // PR preview environments (pr-*) are treated as dev-like
+const isDestroy = process.argv.includes('destroy');
 const isProdLike = stage === 'prod' || stage === 'test';
 
 // Set context values for all stacks
@@ -68,27 +67,7 @@ new StepFunctionsStack(app, `${stackPrefix}-step-functions`, {
   helloWorldFunction: lambdaStack.helloWorldFunction,
 });
 
-// Jira Dashboard Stack - Complete Jira analytics dashboard
-new JiraDashboardStack(app, `${stackPrefix}-jira-dashboard`, {
-  env,
-  description: `Jira Dashboard for ${stage} environment`,
-  stackName: `${stackPrefix}-jira-dashboard`,
-});
 
-// Web App Stack - Static website hosting (S3 + CloudFront)
-// Deploy if:
-// - DEPLOY_WEBAPP=true (explicit deployment)
-// - 'web-app' in arguments (targeting specific stack)
-// - 'destroy' in arguments (need to include in destroy operation)
-const isDestroy = process.argv.includes('destroy');
-const deployWebApp = process.env.DEPLOY_WEBAPP === 'true' || process.argv.includes('web-app') || isDestroy;
-if (deployWebApp) {
-  new WebAppStack(app, `${stackPrefix}-web-app`, {
-    env,
-    description: `Web application hosting for ${stage} environment`,
-    stackName: `${stackPrefix}-web-app`,
-  });
-}
 
 // Balance Booking System (POC) - Pilates studio booking app
 const balancePrefix = `${stage}-balance-booking`;

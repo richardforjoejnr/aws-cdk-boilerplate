@@ -11,7 +11,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export class WebAppStack extends cdk.Stack {
+export class JiraWebStack extends cdk.Stack {
   public readonly bucket: s3.Bucket;
   public readonly distribution: cloudfront.Distribution;
 
@@ -23,7 +23,7 @@ export class WebAppStack extends cdk.Stack {
 
     // S3 bucket for hosting static website
     this.bucket = new s3.Bucket(this, 'WebAppBucket', {
-      bucketName: `${stage}-aws-boilerplate-webapp`,
+      bucketName: `${stage}-jira-dashboard-web`,
       websiteIndexDocument: 'index.html',
       websiteErrorDocument: 'index.html',
       publicReadAccess: false,
@@ -84,7 +84,7 @@ export class WebAppStack extends cdk.Stack {
 
     // Deploy the built web app to S3
     // Note: The web app must be built before deploying this stack
-    const webAppPath = path.join(__dirname, '../../web-app/dist');
+    const webAppPath = path.join(__dirname, '../web-app/dist');
 
     new s3deploy.BucketDeployment(this, 'DeployWebApp', {
       sources: [s3deploy.Source.asset(webAppPath)],
@@ -97,13 +97,13 @@ export class WebAppStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'WebAppUrl', {
       value: `https://${this.distribution.distributionDomainName}`,
       description: 'Web App URL',
-      exportName: `${stage}-webapp-url`,
+      exportName: `${stage}-jira-dashboard-web-url`,
     });
 
     new cdk.CfnOutput(this, 'CloudFrontDistributionId', {
       value: this.distribution.distributionId,
       description: 'CloudFront Distribution ID',
-      exportName: `${stage}-distribution-id`,
+      exportName: `${stage}-jira-dashboard-distribution-id`,
     });
 
     new cdk.CfnOutput(this, 'S3BucketName', {

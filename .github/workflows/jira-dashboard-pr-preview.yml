@@ -1,0 +1,70 @@
+name: Jira Dashboard — PR Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [main, develop]
+    paths:
+      - 'apps/jira-dashboard/**'
+      - '.github/workflows/jira-dashboard-*.yml'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: jira-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '20'
+  AWS_REGION: 'us-east-1'
+
+jobs:
+  deploy-preview:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - run: chmod +x apps/jira-dashboard/scripts/*.sh
+      - name: Deploy preview
+        id: deploy
+        env:
+          STAGE: pr-${{ github.event.pull_request.number }}
+        run: cd apps/jira-dashboard && ./scripts/deploy.sh "pr-${{ github.event.pull_request.number }}"
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const body = `## 📊 Jira Dashboard preview deployed\n\n**Environment:** pr-${context.issue.number}\n\n> Destroyed automatically when the PR is merged or closed.`;
+            const { data: comments } = await github.rest.issues.listComments({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number });
+            const existing = comments.find(c => c.body.includes('Jira Dashboard preview deployed'));
+            if (existing) await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body });
+
+  destroy-preview:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - run: chmod +x apps/jira-dashboard/scripts/*.sh
+      - env:
+          STAGE: pr-${{ github.event.pull_request.number }}
+        run: cd apps/jira-dashboard && echo "pr-${{ github.event.pull_request.number }}" | ./scripts/destroy.sh "pr-${{ github.event.pull_request.number }}"

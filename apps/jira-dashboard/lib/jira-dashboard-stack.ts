@@ -170,7 +170,7 @@ export class JiraDashboardStack extends cdk.Stack {
       functionName: `${stage}-jira-csv-processor`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'handler',
-      entry: path.join(__dirname, '../../functions/src/jira-csv-processor/index.ts'),
+      entry: path.join(__dirname, '../src/jira-csv-processor/index.ts'),
       timeout: cdk.Duration.minutes(15),
       memorySize: 3008,
       environment: {
@@ -194,7 +194,7 @@ export class JiraDashboardStack extends cdk.Stack {
       functionName: `${stage}-jira-process-batch`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'handler',
-      entry: path.join(__dirname, '../../functions/src/jira-process-batch/index.ts'),
+      entry: path.join(__dirname, '../src/jira-process-batch/index.ts'),
       timeout: cdk.Duration.minutes(15),
       memorySize: 3008,
       environment: {
@@ -231,7 +231,7 @@ export class JiraDashboardStack extends cdk.Stack {
       functionName: `${stage}-jira-finalize-upload`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'handler',
-      entry: path.join(__dirname, '../../functions/src/jira-finalize-upload/index.ts'),
+      entry: path.join(__dirname, '../src/jira-finalize-upload/index.ts'),
       timeout: cdk.Duration.minutes(5),
       memorySize: 1024,
       environment: {
@@ -303,7 +303,7 @@ export class JiraDashboardStack extends cdk.Stack {
       functionName: `${stage}-jira-start-processing`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'handler',
-      entry: path.join(__dirname, '../../functions/src/jira-start-processing/index.ts'),
+      entry: path.join(__dirname, '../src/jira-start-processing/index.ts'),
       timeout: cdk.Duration.seconds(30),
       environment: {
         STATE_MACHINE_ARN: stateMachine.stateMachineArn,
@@ -330,7 +330,7 @@ export class JiraDashboardStack extends cdk.Stack {
       functionName: `${stage}-jira-get-upload-url`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'handler',
-      entry: path.join(__dirname, '../../functions/src/jira-get-upload-url/index.ts'),
+      entry: path.join(__dirname, '../src/jira-get-upload-url/index.ts'),
       timeout: cdk.Duration.seconds(30),
       environment: {
         CSV_BUCKET: this.csvBucket.bucketName,
@@ -352,7 +352,7 @@ export class JiraDashboardStack extends cdk.Stack {
       functionName: `${stage}-jira-get-dashboard-data`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'handler',
-      entry: path.join(__dirname, '../../functions/src/jira-get-dashboard-data/index.ts'),
+      entry: path.join(__dirname, '../src/jira-get-dashboard-data/index.ts'),
       timeout: cdk.Duration.seconds(30),
       memorySize: 1024,
       environment: {
@@ -375,7 +375,7 @@ export class JiraDashboardStack extends cdk.Stack {
       functionName: `${stage}-jira-get-historical-data`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'handler',
-      entry: path.join(__dirname, '../../functions/src/jira-get-historical-data/index.ts'),
+      entry: path.join(__dirname, '../src/jira-get-historical-data/index.ts'),
       timeout: cdk.Duration.seconds(30),
       memorySize: 1024,
       environment: {
@@ -396,7 +396,7 @@ export class JiraDashboardStack extends cdk.Stack {
       functionName: `${stage}-jira-list-uploads`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'handler',
-      entry: path.join(__dirname, '../../functions/src/jira-list-uploads/index.ts'),
+      entry: path.join(__dirname, '../src/jira-list-uploads/index.ts'),
       timeout: cdk.Duration.seconds(30),
       environment: {
         UPLOADS_TABLE: this.uploadsTable.tableName,
@@ -414,7 +414,7 @@ export class JiraDashboardStack extends cdk.Stack {
       functionName: `${stage}-jira-delete-upload`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'handler',
-      entry: path.join(__dirname, '../../functions/src/jira-delete-upload/index.ts'),
+      entry: path.join(__dirname, '../src/jira-delete-upload/index.ts'),
       timeout: cdk.Duration.seconds(60),
       environment: {
         CSV_BUCKET: this.csvBucket.bucketName,
@@ -437,7 +437,7 @@ export class JiraDashboardStack extends cdk.Stack {
       functionName: `${stage}-jira-get-upload-status`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'handler',
-      entry: path.join(__dirname, '../../functions/src/jira-get-upload-status/index.ts'),
+      entry: path.join(__dirname, '../src/jira-get-upload-status/index.ts'),
       timeout: cdk.Duration.seconds(10),
       environment: {
         UPLOADS_TABLE: this.uploadsTable.tableName,
@@ -521,7 +521,7 @@ export class JiraDashboardStack extends cdk.Stack {
       functionName: `${stage}-get-costs`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'handler',
-      entry: path.join(__dirname, '../../functions/src/get-costs/index.ts'),
+      entry: path.join(__dirname, '../src/get-costs/index.ts'),
       timeout: cdk.Duration.seconds(30),
       bundling: {
         externalModules: ['@aws-sdk/*'],
