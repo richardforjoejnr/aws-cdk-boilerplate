@@ -118,11 +118,35 @@ const $ = id => document.getElementById(id);
 const show = (id, on = true) => { $(id).style.display = on ? '' : 'none'; };
 const toast = msg => { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 3000); };
 let KEY = localStorage.getItem('ghana_admin_key') || '';
+let devicePollTimer = null;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-const api = (p, opts = {}) => fetch('/api/v1' + p, {
-  ...opts,
-  headers: { 'x-api-key': KEY, 'content-type': 'application/json', ...(opts.headers || {}) },
-}).then(async r => ({ ok: r.ok, status: r.status, body: await r.json().catch(() => ({})) }));
+// Retry transient failures (API Gateway throttle 429, Lambda cold-start 5xx, and
+// the 403 "Forbidden" a freshly-deployed API returns while the API-key→usage-plan
+// association propagates) with a short backoff. Without this, one blip during the
+// burst of calls start() fires would wipe a valid key and log the admin out.
+const api = async (p, opts = {}) => {
+  for (let attempt = 0; ; attempt++) {
+    const r = await fetch('/api/v1' + p, {
+      ...opts,
+      headers: { 'x-api-key': KEY, 'content-type': 'application/json', ...(opts.headers || {}) },
+    });
+    if ((r.status === 403 || r.status === 429 || r.status >= 500) && attempt < 3) {
+      await sleep(300 * (attempt + 1));
+      continue;
+    }
+    return { ok: r.ok, status: r.status, body: await r.json().catch(() => ({})) };
+  }
+};
+
+// Genuine auth failure (still 403 after retries): drop the key, stop polling, show login.
+function logout(msg) {
+  KEY = '';
+  localStorage.removeItem('ghana_admin_key');
+  if (devicePollTimer) { clearInterval(devicePollTimer); devicePollTimer = null; }
+  show('portal', false); show('key-card');
+  if (msg) toast(msg);
+}
 
 function chipClass(status) {
   return { ACTIVE: 'success', SUSPENDED: 'danger', PENDING_KYC: 'warning', CLOSED: 'danger' }[status] || '';
@@ -130,7 +154,7 @@ function chipClass(status) {
 
 async function loadMerchants() {
   const res = await api('/merchants');
-  if (res.status === 403) { localStorage.removeItem('ghana_admin_key'); show('portal', false); show('key-card'); return toast('API key rejected'); }
+  if (res.status === 403) { logout('API key rejected'); return; }
   if (!res.ok) return toast('Failed to load merchants');
   merchantsCache = res.body.merchants;
   const sel = $('d-merchant');
@@ -431,7 +455,8 @@ async function start() {
   if (!KEY) return;
   show('key-card', false); show('portal');
   await loadMerchants(); loadDevices(); loadCosts();
-  setInterval(loadDevices, 15000); // keep pairing state fresh (device list read ~ $0.000001)
+  if (devicePollTimer) clearInterval(devicePollTimer);
+  devicePollTimer = setInterval(loadDevices, 15000); // keep pairing state fresh (device list read ~ $0.000001)
 }
 start();
 </script>
