@@ -60,7 +60,10 @@ jobs:
           aws ssm put-parameter --name "/${STAGE}/ghana-payments/admin/credentials" \
             --type SecureString --overwrite \
             --value "{\"username\":\"admin\",\"password_hash\":\"$HASH\"}"
-          echo "::add-mask::$PASSWORD"
+          # NOTE: do NOT ::add-mask:: the password — masking hides it in the run
+          # SUMMARY too (shown as ***), which defeats the point. It is never echoed
+          # to stdout (only written to GITHUB_OUTPUT + the access-controlled summary),
+          # so it does not leak into the visible step logs.
           echo "password=$PASSWORD" >> "$GITHUB_OUTPUT"
 
       - name: Deploy
