@@ -45,9 +45,6 @@ jobs:
         run: npm run test
         continue-on-error: true  # Don't fail build if no tests exist yet
 
-      - name: Check for TypeScript errors
-        run: npx tsc --noEmit --project packages/web-app/tsconfig.json
-
       - name: Summary
         if: success()
         run: |

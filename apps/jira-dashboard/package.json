@@ -14,6 +14,7 @@
     "destroy": "./scripts/destroy.sh"
   },
   "dependencies": {
+    "@aws-sdk/client-cloudwatch": "^3.1085.0",
     "@aws-sdk/client-cost-explorer": "^3.1085.0",
     "@aws-sdk/client-dynamodb": "^3.1085.0",
     "@aws-sdk/client-s3": "^3.1085.0",
