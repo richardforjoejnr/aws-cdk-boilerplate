@@ -13,6 +13,8 @@
     "test": "npm run test --workspaces --if-present",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"**/*.{ts,json,md}\"",
+    "new-app": "node scripts/new-app.mjs",
+    "extract-app": "node scripts/extract-app.mjs",
     "prepare": "husky install || true"
   },
   "devDependencies": {
