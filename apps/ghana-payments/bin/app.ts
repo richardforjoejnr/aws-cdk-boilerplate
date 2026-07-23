@@ -3,6 +3,7 @@ import * as cdk from 'aws-cdk-lib';
 import { GhanaPaymentsFoundationStack } from '../lib/foundation-stack.js';
 import { GhanaPaymentsApiStack } from '../lib/api-stack.js';
 import { GhanaPaymentsWebStack } from '../lib/web-stack.js';
+import { GhanaPaymentsFleetProvisioningStack } from '../lib/fleet-provisioning-stack.js';
 import { GhanaPaymentsSpikeStack } from '../lib/spike-stack.js';
 
 const app = new cdk.App();
@@ -41,6 +42,17 @@ new GhanaPaymentsWebStack(app, `${prefix}-web`, {
   stage,
   isProdLike,
   apiStack: api,
+});
+
+// IoT Fleet Provisioning by Claim — the fleet's provisioning template, claim +
+// device policies, and pre-provisioning hook. Independent of the API stack.
+new GhanaPaymentsFleetProvisioningStack(app, `${prefix}-fleet`, {
+  env,
+  stackName: `${prefix}-fleet`,
+  description: `Ghana Payments soundbox fleet provisioning for ${stage}`,
+  stage,
+  isProdLike,
+  foundation,
 });
 
 // Phase 0 spike (throwaway) — only on explicit request.
