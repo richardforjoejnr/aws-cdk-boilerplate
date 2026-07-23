@@ -15,6 +15,11 @@ import { hashPii } from '../shared/pii.js';
 const TABLE = (): string => process.env.MERCHANTS_TABLE ?? '';
 const VALID_STATUSES = ['PENDING_KYC', 'ACTIVE', 'SUSPENDED', 'CLOSED'];
 
+// Payment methods a store can accept. The mock provider covers all of them in the
+// PoC; the payment path validates a request against the store's enabled set.
+export const SUPPORTED_PAYMENT_METHODS = ['MTN_MOMO', 'VODAFONE_CASH', 'AIRTELTIGO', 'CARD'] as const;
+const DEFAULT_PAYMENT_METHODS = ['MTN_MOMO'];
+
 interface MerchantItem {
   merchant_id: string;
   sk: 'PROFILE';
@@ -22,6 +27,7 @@ interface MerchantItem {
   phone_hash: string;
   ghana_card_hash?: string;
   business_category: string;
+  payment_methods?: string[];
   status: string;
   kyc_level: string;
   created_at: string;
@@ -34,6 +40,7 @@ interface CreateBody {
   phone: string;
   business_category?: string;
   ghana_card?: string;
+  payment_methods?: string[];
 }
 
 /** POST /v1/merchants (§8.1) — PoC activates immediately (no KYC verification, D9). */
@@ -42,19 +49,37 @@ export const createHandler = async (
 ): Promise<APIGatewayProxyResult> => {
   try {
     const body = parseBody<CreateBody>(event.body);
+    // Which payment methods this store accepts (part of "setting up the store").
+    const requested = Array.isArray(body.payment_methods) ? body.payment_methods : DEFAULT_PAYMENT_METHODS;
+    const invalid = requested.filter(
+      (m) => !SUPPORTED_PAYMENT_METHODS.includes(m as (typeof SUPPORTED_PAYMENT_METHODS)[number])
+    );
+    if (invalid.length > 0) {
+      return apiError(400, 'INVALID_PAYMENT_METHOD', `Unsupported payment method(s): ${invalid.join(', ')}`);
+    }
+    const paymentMethods = requested.length > 0 ? [...new Set(requested)] : DEFAULT_PAYMENT_METHODS;
     const item = {
       merchant_id: `mer_${randomUUID().slice(0, 12)}`,
       sk: 'PROFILE',
       display_name: requireString(body.display_name, 'display_name'),
       phone_hash: hashPii(requireString(body.phone, 'phone')),
       business_category: body.business_category ?? 'general',
+      payment_methods: paymentMethods,
       ...(body.ghana_card ? { ghana_card_hash: hashPii(body.ghana_card) } : {}),
       status: 'ACTIVE',
       kyc_level: 'NONE',
       created_at: new Date().toISOString(),
     };
     await ddb.send(new PutCommand({ TableName: TABLE(), Item: item }));
-    return ok({ merchant_id: item.merchant_id, display_name: item.display_name, status: item.status }, 201);
+    return ok(
+      {
+        merchant_id: item.merchant_id,
+        display_name: item.display_name,
+        status: item.status,
+        payment_methods: item.payment_methods,
+      },
+      201
+    );
   } catch (err) {
     return handleError(err);
   }
@@ -98,6 +123,7 @@ export const getHandler = async (event: APIGatewayProxyEvent): Promise<APIGatewa
       merchant_id: m.merchant_id,
       display_name: m.display_name,
       business_category: m.business_category,
+      payment_methods: m.payment_methods ?? [],
       status: m.status,
       kyc_level: m.kyc_level,
       created_at: m.created_at,

@@ -60,7 +60,7 @@
       <div class="row">
         <div><label>Serial number</label><input id="d-serial" placeholder="SBX-0001" /></div>
         <div><label>Type</label>
-          <select id="d-type"><option value="VIRTUAL">Virtual (browser)</option><option value="REAL">Real hardware</option></select>
+          <select id="d-type"><option value="VIRTUAL">Virtual (browser)</option><option value="REAL">Real hardware (fleet)</option></select>
         </div>
         <div><label>Merchant</label><select id="d-merchant"><option value="">— pair later —</option></select></div>
         <div style="flex:0 0 auto; align-self:flex-end"><button id="d-register-btn" class="small">Register</button></div>
@@ -219,7 +219,10 @@ let devicesCache = [];
 let lastPairing = null; // {deviceId, serial} of the banner currently shown
 
 function deviceChip(d) {
-  const cls = {ACTIVE:'success',PAIRED:'accent',UNASSIGNED:'warning',SUSPENDED:'danger',RETIRED:'danger',OFFLINE:'danger'}[d.status] || '';
+  const cls = {ACTIVE:'success',PAIRED:'accent',PROVISIONED:'accent',UNASSIGNED:'warning',MANUFACTURED:'warning',SUSPENDED:'danger',RETIRED:'danger',OFFLINE:'danger'}[d.status] || '';
+  // Fleet lifecycle states get friendlier labels than the raw status.
+  if (d.status === 'MANUFACTURED') return `<span class="chip warning">AWAITING DEVICE</span> <span class="dim">not provisioned yet</span>`;
+  if (d.status === 'PROVISIONED') return `<span class="chip accent">READY</span> <span class="dim">unassigned — click Assign</span>`;
   if (d.status === 'UNASSIGNED' && d.pending_merchant_id) {
     const live = d.pairing_code_expires && d.pairing_code_expires > Date.now();
     if (live) {
@@ -242,17 +245,33 @@ async function loadDevices() {
   $('device-rows').innerHTML = (res.body.devices || [])
     .filter(d => d.status !== 'RETIRED')
     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
-    .map(d => `<tr>
+    .map(d => {
+      const sc = s => s.replace(/'/g, "\\'");
+      // Fleet (real) devices pair to a store server-side (Assign); virtual devices
+      // use the legacy on-device pairing code (Pair…).
+      let primary;
+      if (d.device_type === 'REAL') {
+        if (d.status === 'MANUFACTURED') primary = `<span class="dim">awaiting device</span>`;
+        else if (d.status === 'PROVISIONED') primary = `<button class="small" onclick="assignDevice('${d.device_id}','${sc(d.serial_number)}')">Assign…</button>`;
+        else if (d.status === 'ACTIVE' || d.status === 'PAIRED')
+          primary = `<button class="small" onclick="assignDevice('${d.device_id}','${sc(d.serial_number)}')">Reassign…</button>
+                     <button class="small secondary" onclick="unassignDevice('${d.device_id}','${sc(d.serial_number)}')">Unassign</button>`;
+        else primary = '';
+      } else {
+        primary = `<button class="small" onclick="pairDevice('${d.device_id}','${sc(d.serial_number)}')">${d.status === 'PAIRED' || d.status === 'ACTIVE' ? 'Re-pair…' : 'Pair…'}</button>`;
+      }
+      return `<tr>
       <td>${d.serial_number} <span class="chip" style="font-size:.62rem">${d.device_type === 'REAL' ? '🔌 real' : '🌐 virtual'}</span></td>
       <td>${deviceChip(d)}</td>
       <td>${d.merchant_id ? merchantName(d.merchant_id) : (d.pending_merchant_id ? `${merchantName(d.pending_merchant_id)} <span class="dim">(pending)</span>` : '—')}</td>
       <td class="dim">${d.last_seen_at ? new Date(d.last_seen_at).toLocaleTimeString() : '—'}</td>
       <td style="text-align:right; white-space:nowrap">
-        <button class="small" onclick="pairDevice('${d.device_id}','${d.serial_number}')">${d.status === 'PAIRED' || d.status === 'ACTIVE' ? 'Re-pair…' : 'Pair…'}</button>
+        ${primary}
         <button class="small secondary" onclick="testDevice('${d.device_id}')">Test</button>
-        <button class="small secondary" onclick="deviceInfo('${d.device_id}','${d.serial_number}','${d.device_type}')">Info</button>
-        <button class="small danger" onclick="removeDevice('${d.device_id}','${d.serial_number}')">Remove</button>
-      </td></tr>`)
+        <button class="small secondary" onclick="deviceInfo('${d.device_id}','${sc(d.serial_number)}','${d.device_type}')">Info</button>
+        <button class="small danger" onclick="removeDevice('${d.device_id}','${sc(d.serial_number)}')">Remove</button>
+      </td></tr>`;
+    })
     .join('');
 
   if (lastPairing) {
@@ -342,18 +361,23 @@ window.deviceInfo = async (deviceId, serial, type) => {
       <span class="dim">— demo convenience; each new PIN replaces the previous one.</span>`;
   } else {
     const cfg = (await api('/soundbox/config')).body || {};
-    $('di-body').innerHTML = `A real device connects to AWS IoT Core over <b>MQTT/TLS, port 8883</b>, with an X.509 certificate. Configure it with:
+    const dev = devicesCache.find(d => d.device_id === deviceId) || {};
+    const thing = `soundbox-${serial}`;
+    const provisioned = dev.status !== 'MANUFACTURED';
+    $('di-body').innerHTML = `A real device self-provisions via <b>AWS IoT Fleet Provisioning by Claim</b>: it ships with
+      the shared claim certificate, and on first boot swaps it for its own unique X.509 cert, connecting over
+      <b>MQTT/TLS 8883</b> as its Thing.
       <table style="margin:.6rem 0">
+        <tr><td class="dim">Status</td><td>${provisioned ? '<b>provisioned</b> — has its own certificate' : '<b>awaiting device</b> — flash + power on to provision'}</td></tr>
         <tr><td class="dim">IoT endpoint</td><td><code>${cfg.iot_endpoint || '—'}</code></td></tr>
         <tr><td class="dim">Region</td><td><code>${cfg.region || '—'}</code></td></tr>
-        <tr><td class="dim">MQTT client id</td><td><code>soundbox-${deviceId}</code></td></tr>
-        <tr><td class="dim">Subscribe (QoS 1)</td><td><code>devices/${deviceId}/payments</code>, <code>devices/${deviceId}/commands</code></td></tr>
-        <tr><td class="dim">Publish heartbeat</td><td><code>devices/${deviceId}/heartbeat</code> every 60s</td></tr>
-        <tr><td class="dim">Session</td><td>clean session <b>false</b> (replays missed announcements)</td></tr>
+        <tr><td class="dim">Thing / client id</td><td><code>${thing}</code></td></tr>
+        <tr><td class="dim">Subscribe (QoS 1)</td><td><code>devices/${thing}/payments</code>, <code>devices/${thing}/commands</code></td></tr>
       </table>
-      <b>To provision:</b> generate a pairing code with <b>Pair…</b>, then follow the setup guide —
-      it creates the device certificate, pairs it with the code, and produces a ready-to-run config bundle
-      for a laptop, Raspberry Pi, or ESP32: <code>packages/ghana-payments/docs/DEVICE_SETUP.md</code>`;
+      <b>To provision (no hardware needed to try):</b>
+      <div style="margin:.4rem 0"><code>node device-client/fleet-provision.mjs claim-bundle ${serial}</code></div>
+      Full hardware guide (Raspberry Pi + ESP32, what to flash): <code>apps/ghana-payments/docs/SOUNDBOX_SETUP.md</code>.
+      Once it shows <b>READY</b>, pick a store above and click <b>Assign</b>.`;
   }
   show('device-info');
   $('device-info').scrollIntoView({ behavior: 'smooth' });
@@ -362,29 +386,63 @@ window.deviceInfo = async (deviceId, serial, type) => {
 $('d-register-btn').addEventListener('click', async () => {
   const isReal = $('d-type').value === 'REAL';
   const serial = $('d-serial').value.trim();
+  if (!serial) { toast('Enter a serial number'); return; }
+
+  if (isReal) {
+    // Fleet model: recording a serial adds it to the manufactured allow-list. The
+    // unit then self-provisions (claim cert → own cert) on first boot and appears
+    // here as PROVISIONED, ready to Assign to a store. No pairing code on device.
+    const res = await api('/fleet/serials', {
+      method: 'POST',
+      body: JSON.stringify({
+        serials: [serial],
+        model: 'esp32-soundbox',
+        ...($('d-notes').value.trim() ? { notes: $('d-notes').value.trim() } : {}),
+      }),
+    });
+    if (!res.ok) return toast(res.body?.error?.message || 'Register failed');
+    if ((res.body.skipped || []).includes(serial)) toast(`${serial} is already registered`);
+    else toast(`${serial} added to the fleet — provision it, then Assign to a store`);
+    $('d-serial').value = '';
+    return loadDevices();
+  }
+
+  // Virtual (browser) devices keep the legacy register + pairing-code flow.
   const res = await api('/devices', {
     method: 'POST',
-    body: JSON.stringify({
-      serial_number: serial,
-      device_type: $('d-type').value,
-      model: isReal ? 'esp32-soundbox' : 'virtual-soundbox',
-      ...(isReal && $('d-firmware').value.trim() ? { firmware_version: $('d-firmware').value.trim() } : {}),
-      ...(isReal && $('d-notes').value.trim() ? { notes: $('d-notes').value.trim() } : {}),
-    }),
+    body: JSON.stringify({ serial_number: serial, device_type: 'VIRTUAL', model: 'virtual-soundbox' }),
   });
   if (!res.ok) return toast(res.body?.error?.message || 'Register failed');
   toast(`Registered ${res.body.device_id}`);
-  // Merchant chosen up front -> generate the pairing code in the same step
   const merchantId = $('d-merchant').value;
   if (merchantId) {
     const pc = await api(`/devices/${res.body.device_id}/pairing-code`, {
       method: 'POST', body: JSON.stringify({ merchant_id: merchantId }),
     });
-    if (pc.ok) showPairingBanner(serial, merchantId, pc.body.pairing_code, $('d-type').value, res.body.device_id);
+    if (pc.ok) showPairingBanner(serial, merchantId, pc.body.pairing_code, 'VIRTUAL', res.body.device_id);
   }
   $('d-serial').value = '';
   loadDevices();
 });
+
+// Fleet pairing: bind a provisioned device to the store chosen in the Merchant
+// dropdown — a pure server-side update, no device interaction, re-assignable.
+window.assignDevice = async (deviceId, serial) => {
+  const merchantId = $('d-merchant').value;
+  if (!merchantId) { toast('Pick a store in the Merchant dropdown, then click Assign'); return; }
+  const res = await api(`/devices/${deviceId}/assign`, {
+    method: 'POST', body: JSON.stringify({ merchant_id: merchantId }),
+  });
+  if (!res.ok) return toast(res.body?.error?.message || 'Assign failed');
+  const name = (merchantsCache.find(m => m.merchant_id === merchantId) || {}).display_name || merchantId;
+  toast(`${serial} assigned to ${name}`);
+  loadDevices();
+};
+window.unassignDevice = async (deviceId, serial) => {
+  if (!confirm(`Unassign ${serial}? It returns to unassigned inventory (keeps its certificate).`)) return;
+  const res = await api(`/devices/${deviceId}/unassign`, { method: 'POST' });
+  res.ok ? (toast(`${serial} unassigned`), loadDevices()) : toast(res.body?.error?.message || 'Unassign failed');
+};
 
 window.removeDevice = async (deviceId, serial) => {
   if (!confirm(`Remove ${serial}? This deletes the device and its access — the serial can then be re-registered.`)) return;

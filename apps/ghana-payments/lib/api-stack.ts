@@ -304,10 +304,14 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     const deviceCommand = make('device-command', 'devices/handlers.ts', 'commandHandler');
     const deviceStatus = make('device-status', 'devices/handlers.ts', 'statusHandler');
     const deviceDelete = make('device-delete', 'devices/handlers.ts', 'deleteHandler');
+    const deviceAssign = make('device-assign', 'devices/handlers.ts', 'assignHandler');
+    const deviceUnassign = make('device-unassign', 'devices/handlers.ts', 'unassignHandler');
+    const fleetManufacture = make('fleet-manufacture', 'devices/handlers.ts', 'manufactureHandler');
     const soundboxConfig = make('soundbox-config', 'devices/handlers.ts', 'configHandler');
-    for (const fn of [deviceRegister, deviceList, devicePairingCode, devicePair, deviceCommand, deviceStatus, deviceDelete]) {
+    for (const fn of [deviceRegister, deviceList, devicePairingCode, devicePair, deviceCommand, deviceStatus, deviceDelete, deviceAssign, deviceUnassign, fleetManufacture]) {
       foundation.devicesTable.grantReadWriteData(fn);
     }
+    foundation.merchantsTable.grantReadData(deviceAssign); // assign validates merchant is ACTIVE
     deviceDelete.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ['iot:ListTargetsForPolicy', 'iot:DetachPolicy', 'iot:DeletePolicy'],
@@ -335,6 +339,11 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     deviceById.addResource('pairing-code').addMethod('POST', integrate(devicePairingCode), adminOpts);
     deviceById.addResource('events').addMethod('POST', integrate(deviceCommand), adminOpts);
     deviceById.addResource('status').addMethod('PATCH', integrate(deviceStatus), adminOpts);
+    // Remote pairing (fleet model): bind/unbind a provisioned device to a store.
+    deviceById.addResource('assign').addMethod('POST', integrate(deviceAssign), adminOpts);
+    deviceById.addResource('unassign').addMethod('POST', integrate(deviceUnassign), adminOpts);
+    // Fleet: record manufactured serials into the provisioning allow-list.
+    v1.addResource('fleet').addResource('serials').addMethod('POST', integrate(fleetManufacture), adminOpts);
     v1.addResource('soundbox').addResource('config').addMethod('GET', integrate(soundboxConfig));
 
     // Announcer: payment.confirmed -> announce-once guard -> per-device MQTT publish
