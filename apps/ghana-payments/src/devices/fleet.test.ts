@@ -108,6 +108,9 @@ describe('remote assign (POST /v1/devices/{id}/assign)', () => {
     const update = ddbMock.commandCalls(UpdateCommand)[0].args[0].input;
     expect(update.ExpressionAttributeValues?.[':mid']).toBe('mer_1');
     expect(update.UpdateExpression).toContain('merchant_id = :mid');
+    // MUST set paired_at (the devices GSI1 sort key) or the announcer's
+    // merchant->device query never sees this device (live-E2E regression).
+    expect(update.UpdateExpression).toContain('paired_at = :now');
   });
 
   it('409s when the device is not assignable (e.g. still MANUFACTURED / RETIRED)', async () => {

@@ -352,7 +352,9 @@ export const commandHandler = async (
       new GetCommand({ TableName: DEVICES_TABLE(), Key: { device_id: deviceId } })
     );
     if (!device.Item) return apiError(404, 'DEVICE_NOT_FOUND', 'No such device');
-    await publishToDevice(`devices/${deviceId}/commands`, {
+    // Fleet devices listen on their Thing-name topics; legacy on device_id.
+    const topicRoot = (device.Item as DeviceItem).thing_name ?? deviceId;
+    await publishToDevice(`devices/${topicRoot}/commands`, {
       event_type: eventType,
       ...(body.payload ?? {}),
       timestamp: new Date().toISOString(),
@@ -412,7 +414,8 @@ export const deleteHandler = async (
     // Tell a live device it has been removed BEFORE revoking access, so it
     // disconnects and clears its pairing immediately (best effort).
     try {
-      await publishToDevice(`devices/${deviceId}/commands`, {
+      const topicRoot = (res.Item as DeviceItem).thing_name ?? deviceId;
+      await publishToDevice(`devices/${topicRoot}/commands`, {
         event_type: 'DEVICE_REMOVED',
         timestamp: new Date().toISOString(),
       });
@@ -532,8 +535,10 @@ export const assignHandler = async (
         new UpdateCommand({
           TableName: DEVICES_TABLE(),
           Key: { device_id: deviceId },
+          // paired_at is the devices GSI1 sort key — it MUST be set or the device
+          // won't appear in the merchant->device index the announcer queries.
           UpdateExpression:
-            'SET #status = :active, merchant_id = :mid, assigned_at = :now ' +
+            'SET #status = :active, merchant_id = :mid, paired_at = :now, assigned_at = :now ' +
             'REMOVE pairing_code, pairing_code_expires, pending_merchant_id',
           // Only a provisioned/assignable device can be bound — not one still
           // MANUFACTURED (no cert yet), RETIRED, or SUSPENDED.
