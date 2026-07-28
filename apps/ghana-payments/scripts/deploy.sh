@@ -13,6 +13,20 @@ npx cdk bootstrap "aws://$(aws sts get-caller-identity --query Account --output 
 echo -e "${BLUE}Deploying stage: ${STAGE}...${NC}"
 STAGE=${STAGE} npx cdk deploy --all --require-approval never
 
+# Seed an admin portal login on FIRST deploy only — idempotent, never rotates an
+# existing password (so re-deploys don't lock you out). Pass ADMIN_PASSWORD to set
+# a specific one; otherwise a strong random one is generated and shown once.
+ADMIN_PARAM="/${STAGE}/ghana-payments/admin/credentials"
+if aws ssm get-parameter --name "$ADMIN_PARAM" >/dev/null 2>&1; then
+  ADMIN_LOGIN_NOTE="admin  (already configured — SSM ${ADMIN_PARAM})"
+else
+  ADMIN_PASSWORD="${ADMIN_PASSWORD:-$(node -e "console.log('Sbx'+require('crypto').randomBytes(6).toString('hex')+'!')")}"
+  HASH=$(node -e "const{createHash}=require('crypto');console.log(createHash('sha256').update('ghana-poc:'+process.argv[1]).digest('hex').slice(0,32))" "$ADMIN_PASSWORD")
+  aws ssm put-parameter --name "$ADMIN_PARAM" --type SecureString \
+    --value "{\"username\":\"admin\",\"password_hash\":\"$HASH\"}" >/dev/null
+  ADMIN_LOGIN_NOTE="admin / ${ADMIN_PASSWORD}   (shown once — first deploy)"
+fi
+
 get_output() {
   aws cloudformation describe-stacks --stack-name "$1" \
     --query "Stacks[0].Outputs[?OutputKey=='$2'].OutputValue" --output text 2>/dev/null
@@ -28,6 +42,7 @@ echo -e "  Merchant portal: ${PORTAL_URL}/admin/"
 echo -e "  Soundbox:        ${PORTAL_URL}/soundbox/"
 echo -e "API (direct):      ${API_URL}"
 echo -e "Admin API key id:  ${KEY_ID}"
+echo -e "Admin login:       ${GREEN}${ADMIN_LOGIN_NOTE}${NC}"
 
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
   { echo "portal_url=${PORTAL_URL}"; echo "api_url=${API_URL}"; echo "api_key_id=${KEY_ID}"; } >> "$GITHUB_OUTPUT"
@@ -42,5 +57,6 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     echo "| Soundbox | ${PORTAL_URL}/soundbox/ |"
     echo "| API (direct) | ${API_URL} |"
     echo "| Admin API key id | \`${KEY_ID}\` |"
+    echo "| Admin login | ${ADMIN_LOGIN_NOTE} |"
   } >> "$GITHUB_STEP_SUMMARY"
 fi

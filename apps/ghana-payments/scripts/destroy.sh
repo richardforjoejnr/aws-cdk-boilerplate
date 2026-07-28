@@ -27,6 +27,35 @@ for p in $(aws iot list-policies --query "policies[?starts_with(policyName, '${S
 done
 cleanup_policy "${STAGE}-ghana-spike-policy"
 
+# 1b. Fleet provisioning leaves out-of-band X.509 certs + Things (the shared claim
+# cert and each device's minted cert). They must be detached + deleted or CFN can't
+# remove the fleet policies (policy in use). Detach each cert from the fleet policy,
+# drop its Things, then deactivate + delete the cert.
+echo -e "${BLUE}Cleaning fleet certificates + things...${NC}"
+cleanup_cert() {
+  local arn="$1" certid thing
+  certid="${arn##*/}"
+  for thing in $(aws iot list-principal-things --principal "$arn" --query 'things[]' --output text 2>/dev/null); do
+    [ "$thing" = "None" ] && continue
+    aws iot detach-thing-principal --thing-name "$thing" --principal "$arn" 2>/dev/null || true
+    aws iot delete-thing --thing-name "$thing" 2>/dev/null && echo "  deleted thing $thing" || true
+  done
+  aws iot update-certificate --certificate-id "$certid" --new-status INACTIVE 2>/dev/null || true
+  aws iot delete-certificate --certificate-id "$certid" --force-delete 2>/dev/null && echo "  deleted cert $certid" || true
+}
+for p in "${STAGE}-ghana-soundbox-device" "${STAGE}-ghana-soundbox-claim"; do
+  for t in $(aws iot list-targets-for-policy --policy-name "$p" --query 'targets[]' --output text 2>/dev/null); do
+    [ "$t" = "None" ] && continue
+    aws iot detach-policy --policy-name "$p" --target "$t" 2>/dev/null && echo "  detached $p from $t" || true
+    cleanup_cert "$t"
+  done
+done
+# any stray fleet Things left behind
+for thing in $(aws iot list-things --query "things[?starts_with(thingName,'soundbox-')].thingName" --output text 2>/dev/null); do
+  [ "$thing" = "None" ] && continue
+  aws iot delete-thing --thing-name "$thing" 2>/dev/null && echo "  deleted thing $thing" || true
+done
+
 # 2. Destroy the stacks (self-contained app → only ghana stacks). Include spike if it exists.
 echo -e "${BLUE}Destroying stacks...${NC}"
 DEPLOY_GHANA_SPIKE=true STAGE=${STAGE} npx cdk destroy --all --force

@@ -49,6 +49,10 @@ export const handler = async (
     ttl_seconds: 300,
     timestamp: new Date().toISOString(),
   };
-  await publishToDevice(`devices/${device.device_id}/payments`, announcement);
+  // The device subscribes on topics keyed by the identity it connects as: a
+  // fleet-provisioned unit is its Thing name (soundbox-<serial>), a legacy
+  // virtual/cert device is its device_id. Publish to whichever it uses.
+  const topicRoot = device.thing_name ?? device.device_id;
+  await publishToDevice(`devices/${topicRoot}/payments`, announcement);
   await appendEvent(payment_id, 'ANNOUNCEMENT_PUBLISHED', { device_id: device.device_id });
 };

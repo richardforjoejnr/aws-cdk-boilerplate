@@ -35,13 +35,18 @@ export interface DeviceItem {
   device_type: 'VIRTUAL' | 'REAL';
   firmware_version?: string;
   notes?: string;
+  // Lifecycle: MANUFACTURED (allow-listed, no cert) → PROVISIONED (fleet cert, no
+  // merchant) → ACTIVE/PAIRED (assigned to a store) → SUSPENDED/RETIRED.
   status: string;
   merchant_id?: string;
   pending_merchant_id?: string;
   pairing_code?: string;
   pairing_code_expires?: number; // epoch ms — plain attribute, NOT a TTL attribute
   identity_id?: string;
+  thing_name?: string; // set by fleet provisioning: soundbox-<serial>
+  provisioned_at?: string; // set by the pre-provisioning hook
   paired_at?: string;
+  assigned_at?: string; // set by remote assign
   last_seen_at?: string;
   created_at: string;
 }
@@ -347,7 +352,9 @@ export const commandHandler = async (
       new GetCommand({ TableName: DEVICES_TABLE(), Key: { device_id: deviceId } })
     );
     if (!device.Item) return apiError(404, 'DEVICE_NOT_FOUND', 'No such device');
-    await publishToDevice(`devices/${deviceId}/commands`, {
+    // Fleet devices listen on their Thing-name topics; legacy on device_id.
+    const topicRoot = (device.Item as DeviceItem).thing_name ?? deviceId;
+    await publishToDevice(`devices/${topicRoot}/commands`, {
       event_type: eventType,
       ...(body.payload ?? {}),
       timestamp: new Date().toISOString(),
@@ -407,7 +414,8 @@ export const deleteHandler = async (
     // Tell a live device it has been removed BEFORE revoking access, so it
     // disconnects and clears its pairing immediately (best effort).
     try {
-      await publishToDevice(`devices/${deviceId}/commands`, {
+      const topicRoot = (res.Item as DeviceItem).thing_name ?? deviceId;
+      await publishToDevice(`devices/${topicRoot}/commands`, {
         event_type: 'DEVICE_REMOVED',
         timestamp: new Date().toISOString(),
       });
@@ -445,6 +453,145 @@ export const configHandler = async (): Promise<APIGatewayProxyResult> => {
       identity_pool_id: process.env.IDENTITY_POOL_ID,
       iot_endpoint: await getIotEndpoint(),
     });
+  } catch (err) {
+    return handleError(err);
+  }
+};
+
+/**
+ * POST /v1/fleet/serials — admin: record manufactured serials in the allow-list.
+ * These rows (status MANUFACTURED) are what the pre-provisioning hook checks
+ * before letting a device mint its own cert via fleet provisioning. This is the
+ * "these are the units we built" register — done once at the factory/warehouse.
+ */
+export const manufactureHandler = async (
+  event: APIGatewayProxyEvent
+): Promise<APIGatewayProxyResult> => {
+  try {
+    const body = parseBody<{ serials: string[]; model?: string; notes?: string }>(event.body);
+    if (!Array.isArray(body.serials) || body.serials.length === 0) {
+      return apiError(400, 'MISSING_SERIALS', 'serials must be a non-empty array');
+    }
+    const created: string[] = [];
+    const skipped: string[] = [];
+    for (const raw of body.serials) {
+      const serial = String(raw).trim();
+      if (!serial) continue;
+      const existing = await ddb.send(
+        new QueryCommand({
+          TableName: DEVICES_TABLE(),
+          IndexName: 'GSI2',
+          KeyConditionExpression: 'serial_number = :s',
+          ExpressionAttributeValues: { ':s': serial },
+        })
+      );
+      if (((existing.Items ?? []) as DeviceItem[]).some((d) => d.status !== 'RETIRED')) {
+        skipped.push(serial);
+        continue;
+      }
+      const item: DeviceItem = {
+        device_id: `dev_${randomUUID().slice(0, 12)}`,
+        serial_number: serial,
+        model: body.model ?? 'esp32-soundbox',
+        device_type: 'REAL',
+        ...(body.notes ? { notes: body.notes } : {}),
+        status: 'MANUFACTURED',
+        created_at: new Date().toISOString(),
+      };
+      await ddb.send(new PutCommand({ TableName: DEVICES_TABLE(), Item: item }));
+      created.push(serial);
+    }
+    return ok({ manufactured: created, skipped }, 201);
+  } catch (err) {
+    return handleError(err);
+  }
+};
+
+/**
+ * POST /v1/devices/{id}/assign — admin: bind a provisioned device to a store.
+ * This is the "pair to a merchant" step, done entirely server-side — no device
+ * interaction, no pairing code. Because announce routing is merchant→device, the
+ * device starts announcing that store's payments the instant this returns, and it
+ * can be re-assigned to another store any time.
+ */
+export const assignHandler = async (
+  event: APIGatewayProxyEvent
+): Promise<APIGatewayProxyResult> => {
+  try {
+    const deviceId = event.pathParameters?.id;
+    if (!deviceId) return apiError(400, 'MISSING_ID', 'device id required');
+    const body = parseBody<{ merchant_id: string }>(event.body);
+    const merchantId = requireString(body.merchant_id, 'merchant_id');
+
+    const merchant = await ddb.send(
+      new GetCommand({ TableName: MERCHANTS_TABLE(), Key: { merchant_id: merchantId, sk: 'PROFILE' } })
+    );
+    if (!merchant.Item || merchant.Item.status !== 'ACTIVE') {
+      return apiError(404, 'MERCHANT_NOT_FOUND', 'Merchant missing or not ACTIVE');
+    }
+
+    try {
+      await ddb.send(
+        new UpdateCommand({
+          TableName: DEVICES_TABLE(),
+          Key: { device_id: deviceId },
+          // paired_at is the devices GSI1 sort key — it MUST be set or the device
+          // won't appear in the merchant->device index the announcer queries.
+          UpdateExpression:
+            'SET #status = :active, merchant_id = :mid, paired_at = :now, assigned_at = :now ' +
+            'REMOVE pairing_code, pairing_code_expires, pending_merchant_id',
+          // Only a provisioned/assignable device can be bound — not one still
+          // MANUFACTURED (no cert yet), RETIRED, or SUSPENDED.
+          ConditionExpression:
+            'attribute_exists(device_id) AND #status IN (:provisioned, :active, :paired, :unassigned)',
+          ExpressionAttributeNames: { '#status': 'status' },
+          ExpressionAttributeValues: {
+            ':active': 'ACTIVE',
+            ':mid': merchantId,
+            ':now': new Date().toISOString(),
+            ':provisioned': 'PROVISIONED',
+            ':paired': 'PAIRED',
+            ':unassigned': 'UNASSIGNED',
+          },
+        })
+      );
+    } catch (err: unknown) {
+      if ((err as { name?: string }).name === 'ConditionalCheckFailedException') {
+        return apiError(409, 'NOT_ASSIGNABLE', 'Device is not provisioned, or is retired/suspended');
+      }
+      throw err;
+    }
+    return ok({ device_id: deviceId, merchant_id: merchantId, status: 'ACTIVE' });
+  } catch (err) {
+    return handleError(err);
+  }
+};
+
+/** POST /v1/devices/{id}/unassign — admin: return a device to unassigned inventory. */
+export const unassignHandler = async (
+  event: APIGatewayProxyEvent
+): Promise<APIGatewayProxyResult> => {
+  try {
+    const deviceId = event.pathParameters?.id;
+    if (!deviceId) return apiError(400, 'MISSING_ID', 'device id required');
+    try {
+      await ddb.send(
+        new UpdateCommand({
+          TableName: DEVICES_TABLE(),
+          Key: { device_id: deviceId },
+          UpdateExpression: 'SET #status = :provisioned REMOVE merchant_id, assigned_at, paired_at',
+          ConditionExpression: 'attribute_exists(device_id)',
+          ExpressionAttributeNames: { '#status': 'status' },
+          ExpressionAttributeValues: { ':provisioned': 'PROVISIONED' },
+        })
+      );
+    } catch (err: unknown) {
+      if ((err as { name?: string }).name === 'ConditionalCheckFailedException') {
+        return apiError(404, 'DEVICE_NOT_FOUND', 'No such device');
+      }
+      throw err;
+    }
+    return ok({ device_id: deviceId, status: 'PROVISIONED' });
   } catch (err) {
     return handleError(err);
   }

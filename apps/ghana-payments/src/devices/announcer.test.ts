@@ -99,4 +99,17 @@ describe('device announcer (ADR-4b announce-once)', () => {
     expect(evt?.event_type).toBe('ANNOUNCEMENT_PUBLISHED');
     expect(evt?.device_id).toBe('dev_1');
   });
+
+  it('a FLEET-provisioned device is announced on its Thing-name topic, not device_id', async () => {
+    // Fleet devices connect as their Thing (soundbox-<serial>) and subscribe to
+    // devices/<thing>/*, so the announcer must publish there — publishing to
+    // device_id would go to a topic the device never hears (live-E2E regression).
+    ddbMock.on(QueryCommand).resolves({
+      Items: [{ ...device('ACTIVE'), thing_name: 'soundbox-SBX-DEMO-1' }],
+    });
+    await handler(busEvent());
+    const publishes = iotDataMock.commandCalls(PublishCommand);
+    expect(publishes).toHaveLength(1);
+    expect(publishes[0].args[0].input.topic).toBe('devices/soundbox-SBX-DEMO-1/payments');
+  });
 });
