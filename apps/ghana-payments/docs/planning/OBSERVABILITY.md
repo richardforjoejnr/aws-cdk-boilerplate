@@ -4,6 +4,13 @@ A monitoring surface for the POC that (a) proves value — transactions, volume 
 merchant/soundbox, latency, network mix — and (b) makes failures traceable end to
 end (merchant → service → device), so we know what to harden for production.
 
+> **Status: all phases delivered** (branch `feat/ghana-fleet-provisioning`).
+> Phase 0 structured logging + correlation ids; Phase 1 EMF metrics + DynamoDB
+> stats rollups + latency + CloudWatch dashboard; Phase 2 `/v1/observability/*`
+> read APIs + in-portal Observability panel; Phase 3 device/network telemetry;
+> Phase 4 DLQ/error alarms → SNS (`ALARM_EMAIL` optional). Deploy with
+> `./scripts/deploy.sh dev`; the dashboard is `<stage>-ghana-payments` in CloudWatch.
+
 ## What already exists (build on this)
 
 The system emits most of the raw signal already:
