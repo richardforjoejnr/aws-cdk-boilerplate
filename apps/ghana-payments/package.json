@@ -1,10 +1,12 @@
 {
   "name": "ghana-payments",
   "version": "0.1.0",
-  "description": "Ghana street vendor digital payment & soundbox platform — self-contained AWS serverless app (CDK)",
+  "description": "Ghana street vendor digital payment & soundbox platform \u2014 self-contained AWS serverless app (CDK)",
   "type": "module",
   "private": true,
-  "bin": { "ghana-payments": "bin/app.ts" },
+  "bin": {
+    "ghana-payments": "bin/app.ts"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "watch": "tsc -p tsconfig.build.json -w",
@@ -14,7 +16,9 @@
     "synth": "cdk synth",
     "diff": "cdk diff",
     "deploy": "./scripts/deploy.sh",
-    "destroy": "./scripts/destroy.sh"
+    "destroy": "./scripts/destroy.sh",
+    "test:integration:fleet": "node test/integration/fleet.mjs",
+    "test:integration:all": "node test/integration/run.mjs && node test/integration/fleet.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-api-gateway": "^3.1085.0",
