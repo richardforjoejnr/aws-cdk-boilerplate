@@ -128,6 +128,26 @@ Nothing app-specific to another app comes along, because nothing is shared.
 - **Runtime:** Node.js 20.x, ES Modules, TypeScript strict mode.
 - **Tags:** `App`, `Environment`, `ManagedBy: CDK`.
 
+## Testing — TDD is required (the AI guardrail)
+
+All implementation work follows **test-driven development**, treated as the guardrail
+that keeps the codebase testable, scalable, and reliable:
+
+1. **Understand the design** and state it before coding.
+2. **Write the tests first** — the failing spec for the behaviour you're about to build.
+3. **Run them and confirm they fail** (red) — show the red state.
+4. **Implement until green**, then refactor.
+
+Cover **both** levels:
+- **Unit** — jest + `aws-sdk-client-mock` (see `apps/<app>/src/**/*.test.ts`); fast,
+  deterministic, no network. Assert behaviour and invariants, not implementation.
+- **Integration** — automated end-to-end against real/deployed behaviour
+  (`npm run test:integration`, e.g. `apps/ghana-payments/test/integration/`), plus
+  provider **contract** tests (`*.contract.test.ts`). Not ad-hoc `curl`.
+
+Do **not** write solution code first and tests after. `npm run build`, `npm run lint`,
+and `npm test` must be green before committing; the CI workflow enforces this.
+
 ## AWS Authentication
 
 IAM access keys for local dev and GitHub Actions.
