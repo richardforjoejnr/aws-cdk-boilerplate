@@ -2,8 +2,14 @@ import type { EventBridgeEvent } from 'aws-lambda';
 import { PutCommand } from '@aws-sdk/lib-dynamodb';
 import { randomUUID } from 'node:crypto';
 import { ddb } from '../shared/clients.js';
+import { emitMetrics, log } from '../shared/observability.js';
+import { bumpStats } from '../shared/stats.js';
 
-/** Subscribes to every ghana.payments bus event and writes the audit trail (D9), TTL 90 days. */
+/**
+ * Subscribes to every ghana.payments bus event: writes the audit trail (D9, TTL 90
+ * days) AND is the single choke point for observability — emits transaction/latency
+ * metrics (EMF, low-cardinality) and rolls up per-merchant usage counters.
+ */
 export const handler = async (
   event: EventBridgeEvent<string, Record<string, unknown>>
 ): Promise<void> => {
@@ -21,4 +27,45 @@ export const handler = async (
       },
     })
   );
+
+  // Only payment lifecycle events carry usage/latency signal.
+  const dt = event['detail-type'];
+  const status =
+    dt === 'payment.confirmed' ? 'SUCCESS' : dt === 'payment.failed' ? 'FAILED' : dt === 'payment.expired' ? 'EXPIRED' : null;
+  if (!status) return;
+
+  const d = event.detail;
+  const amount = Number(d.amount ?? 0);
+  const merchantId = String(d.merchant_id ?? 'unknown');
+  const paymentId = String(d.payment_id ?? '');
+  const date = now.toISOString().slice(0, 10);
+
+  const props = { payment_id: paymentId, merchant_id: merchantId, amount, status };
+  emitMetrics(
+    [
+      { name: 'TransactionCount', value: 1, unit: 'Count' },
+      ...(status === 'SUCCESS'
+        ? [{ name: 'TransactionAmountPesewas', value: amount, unit: 'Count' as const }]
+        : []),
+    ],
+    { status },
+    props
+  );
+  if (status !== 'SUCCESS') {
+    emitMetrics([{ name: 'PaymentFailureCount', value: 1, unit: 'Count' }], { reason: String(d.reason ?? status) }, props);
+  }
+  // End-to-end latency (created -> confirmed/failed) when the event carries created_at.
+  if (d.created_at) {
+    const ms = now.getTime() - Date.parse(String(d.created_at));
+    if (ms >= 0 && ms < 3600_000) {
+      emitMetrics([{ name: 'PaymentLatencyMs', value: ms, unit: 'Milliseconds' }], { status }, props);
+    }
+  }
+
+  try {
+    await bumpStats('TOTAL', date, status, amount);
+    await bumpStats(`MERCHANT#${merchantId}`, date, status, amount);
+  } catch (err) {
+    log('warn', 'stats_rollup_failed', { payment_id: paymentId, error: (err as Error).message });
+  }
 };

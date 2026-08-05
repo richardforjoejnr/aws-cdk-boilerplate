@@ -4,6 +4,7 @@ import { GhanaPaymentsFoundationStack } from '../lib/foundation-stack.js';
 import { GhanaPaymentsApiStack } from '../lib/api-stack.js';
 import { GhanaPaymentsWebStack } from '../lib/web-stack.js';
 import { GhanaPaymentsFleetProvisioningStack } from '../lib/fleet-provisioning-stack.js';
+import { GhanaPaymentsMonitoringStack } from '../lib/monitoring-stack.js';
 import { GhanaPaymentsSpikeStack } from '../lib/spike-stack.js';
 
 const app = new cdk.App();
@@ -53,6 +54,15 @@ new GhanaPaymentsFleetProvisioningStack(app, `${prefix}-fleet`, {
   stage,
   isProdLike,
   foundation,
+});
+
+// Observability: CloudWatch dashboard + DLQ/error alarms (reads EMF metrics by name).
+new GhanaPaymentsMonitoringStack(app, `${prefix}-monitoring`, {
+  env,
+  stackName: `${prefix}-monitoring`,
+  description: `Ghana Payments dashboard + alarms for ${stage}`,
+  stage,
+  alarmEmail: process.env.ALARM_EMAIL,
 });
 
 // Phase 0 spike (throwaway) — only on explicit request.

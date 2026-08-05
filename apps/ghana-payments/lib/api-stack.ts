@@ -58,6 +58,8 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
       WALLETS_TABLE: foundation.walletsTable.tableName,
       AUDIT_TABLE: foundation.auditTable.tableName,
       DEVICES_TABLE: foundation.devicesTable.tableName,
+      METRICS_TABLE: foundation.metricsTable.tableName,
+      TELEMETRY_TABLE: foundation.telemetryTable.tableName,
       ACCOUNT_ID: this.account,
       EVENT_BUS_NAME: foundation.eventBus.eventBusName,
       WEBHOOK_INBOX_BUCKET: foundation.webhookInbox.bucketName,
@@ -181,6 +183,7 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
 
     const auditWriter = make('audit-writer', 'events/audit-writer.ts');
     foundation.auditTable.grantWriteData(auditWriter);
+    foundation.metricsTable.grantWriteData(auditWriter); // usage rollups
     const auditDlq = new sqs.Queue(this, 'AuditDlq', { queueName: `${stage}-ghana-audit-dlq` });
     new events.Rule(this, 'AuditRule', {
       ruleName: `${stage}-ghana-audit-all`,
@@ -350,6 +353,7 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     const announcer = make('device-announcer', 'devices/announcer.ts');
     foundation.devicesTable.grantReadData(announcer);
     foundation.paymentsTable.grantReadWriteData(announcer);
+    foundation.metricsTable.grantWriteData(announcer); // per-device usage rollups
     announcer.addToRolePolicy(iotPublish);
     announcer.addToRolePolicy(iotDescribe);
     const announcerDlq = new sqs.Queue(this, 'AnnouncerDlq', {
@@ -397,6 +401,7 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     // Heartbeats: devices/+/heartbeat -> device status/last-seen
     const statusUpdater = make('device-status-updater', 'devices/status-updater.ts');
     foundation.devicesTable.grantReadWriteData(statusUpdater);
+    foundation.telemetryTable.grantWriteData(statusUpdater); // connectivity time-series
     const heartbeatRule = new iot.CfnTopicRule(this, 'HeartbeatRule', {
       ruleName: `${stage.replace(/-/g, '_')}_ghana_heartbeat`,
       topicRulePayload: {

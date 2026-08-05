@@ -4,6 +4,8 @@ import { ddb } from '../shared/clients.js';
 import { publishToDevice } from '../shared/iot.js';
 import type { DeviceAnnouncement, PaymentEvent } from '../shared/types.js';
 import { markAnnounced, appendEvent } from '../payments/ledger.js';
+import { emitMetrics, log } from '../shared/observability.js';
+import { bumpStats } from '../shared/stats.js';
 import type { DeviceItem } from './handlers.js';
 
 /**
@@ -55,4 +57,19 @@ export const handler = async (
   const topicRoot = device.thing_name ?? device.device_id;
   await publishToDevice(`devices/${topicRoot}/payments`, announcement);
   await appendEvent(payment_id, 'ANNOUNCEMENT_PUBLISHED', { device_id: device.device_id });
+
+  // Observability: which soundbox served how much, and confirm->announce latency.
+  const date = new Date().toISOString().slice(0, 10);
+  try {
+    await bumpStats(`DEVICE#${device.device_id}`, date, 'SUCCESS', amount);
+  } catch (err) {
+    log('warn', 'device_stats_failed', { payment_id, device_id: device.device_id, error: (err as Error).message });
+  }
+  const confirmedAt = Date.parse(event.detail.event_time ?? '');
+  if (!Number.isNaN(confirmedAt)) {
+    const ms = Date.now() - confirmedAt;
+    if (ms >= 0 && ms < 600_000) {
+      emitMetrics([{ name: 'AnnounceLatencyMs', value: ms, unit: 'Milliseconds' }], {}, { payment_id, merchant_id, device_id: device.device_id });
+    }
+  }
 };

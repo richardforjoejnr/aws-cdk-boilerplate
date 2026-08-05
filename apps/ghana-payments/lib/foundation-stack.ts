@@ -24,6 +24,8 @@ export class GhanaPaymentsFoundationStack extends cdk.Stack {
   public readonly devicesTable: dynamodb.Table;
   public readonly settlementsTable: dynamodb.Table;
   public readonly auditTable: dynamodb.Table;
+  public readonly metricsTable: dynamodb.Table;
+  public readonly telemetryTable: dynamodb.Table;
   public readonly eventBus: events.EventBus;
   public readonly webhookInbox: s3.Bucket;
 
@@ -117,6 +119,26 @@ export class GhanaPaymentsFoundationStack extends cdk.Stack {
       tableName: `${stage}-ghana-audit`,
       partitionKey: { name: 'date', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
+      timeToLiveAttribute: 'ttl',
+    });
+
+    // Observability rollups: per-merchant / per-device / total counters by day
+    // (pk = TOTAL | MERCHANT#<id> | DEVICE#<id>, sk = yyyy-mm-dd). High-cardinality
+    // usage stats live here (not CloudWatch metric dimensions) — see OBSERVABILITY.md.
+    this.metricsTable = new dynamodb.Table(this, 'MetricsTable', {
+      ...tableDefaults,
+      tableName: `${stage}-ghana-metrics`,
+      partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'date', type: dynamodb.AttributeType.STRING },
+    });
+
+    // Device connectivity time-series (network type, signal, battery, online),
+    // TTL'd so it stays cheap. PK device_id, SK ISO timestamp.
+    this.telemetryTable = new dynamodb.Table(this, 'TelemetryTable', {
+      ...tableDefaults,
+      tableName: `${stage}-ghana-telemetry`,
+      partitionKey: { name: 'device_id', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'ts', type: dynamodb.AttributeType.STRING },
       timeToLiveAttribute: 'ttl',
     });
 
