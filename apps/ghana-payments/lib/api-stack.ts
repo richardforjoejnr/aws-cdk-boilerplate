@@ -349,6 +349,27 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     v1.addResource('fleet').addResource('serials').addMethod('POST', integrate(fleetManufacture), adminOpts);
     v1.addResource('soundbox').addResource('config').addMethod('GET', integrate(soundboxConfig));
 
+    // --- Observability (admin): usage overview, flow trace, failures, fleet ---
+    const obsOverview = make('obs-overview', 'observability/handlers.ts', 'overviewHandler');
+    const obsTrace = make('obs-trace', 'observability/handlers.ts', 'traceHandler');
+    const obsFailures = make('obs-failures', 'observability/handlers.ts', 'failuresHandler');
+    const obsFleet = make('obs-fleet', 'observability/handlers.ts', 'fleetHandler');
+    foundation.metricsTable.grantReadData(obsOverview);
+    foundation.paymentsTable.grantReadData(obsTrace);
+    foundation.paymentsTable.grantReadData(obsFailures);
+    foundation.devicesTable.grantReadData(obsFleet);
+    obsFailures.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['sqs:GetQueueAttributes'],
+        resources: [`arn:aws:sqs:${this.region}:${this.account}:${stage}-ghana-*-dlq`],
+      })
+    );
+    const obs = v1.addResource('observability');
+    obs.addResource('overview').addMethod('GET', integrate(obsOverview), adminOpts);
+    obs.addResource('failures').addMethod('GET', integrate(obsFailures), adminOpts);
+    obs.addResource('fleet').addMethod('GET', integrate(obsFleet), adminOpts);
+    obs.addResource('trace').addResource('{payment_id}').addMethod('GET', integrate(obsTrace), adminOpts);
+
     // Announcer: payment.confirmed -> announce-once guard -> per-device MQTT publish
     const announcer = make('device-announcer', 'devices/announcer.ts');
     foundation.devicesTable.grantReadData(announcer);

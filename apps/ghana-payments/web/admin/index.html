@@ -91,6 +91,26 @@
       </div>
     </div>
 
+    <div id="obs-card" class="card">
+      <h2>📊 Observability <button id="obs-refresh" class="small secondary" style="float:right">Refresh</button></h2>
+      <div id="obs-kpis" style="display:flex; gap:.6rem; flex-wrap:wrap; margin:.5rem 0"></div>
+      <div id="obs-daily" style="margin:.6rem 0"></div>
+      <div style="display:flex; gap:1rem; flex-wrap:wrap">
+        <div style="flex:1; min-width:220px"><div class="dim" style="margin:.4rem 0">Top stores by volume</div><div id="obs-top-merchants"></div></div>
+        <div style="flex:1; min-width:220px"><div class="dim" style="margin:.4rem 0">Top soundboxes by volume</div><div id="obs-top-devices"></div></div>
+      </div>
+      <div class="dim" style="margin:.8rem 0 .3rem">Fleet &amp; network</div>
+      <div id="obs-fleet"></div>
+      <div class="dim" style="margin:.8rem 0 .3rem">Recent failures &amp; dead-letter queues</div>
+      <div id="obs-failures"></div>
+      <div class="dim" style="margin:.8rem 0 .3rem">Flow trace — paste a payment id to see the whole lifecycle</div>
+      <div class="row">
+        <input id="obs-trace-id" placeholder="pay_..." style="flex:1" />
+        <button id="obs-trace-btn" class="small">Trace</button>
+      </div>
+      <div id="obs-trace" style="margin-top:.5rem"></div>
+    </div>
+
   <div id="issue-card" class="card" style="display:none">
     <h2>🐞 Report an issue</h2>
     <label>Title</label>
@@ -509,10 +529,123 @@ document.getElementById('issue-submit').addEventListener('click', async () => {
   }
 });
 
+// ── Observability panel ──────────────────────────────────────────────────────
+const pesewas = (p) => `GHS ${(Number(p || 0) / 100).toFixed(2)}`;
+const kpi = (label, value, tone = '') =>
+  `<div class="card" style="flex:1; min-width:130px; margin:0; padding:.55rem .8rem"><div class="dim" style="font-size:.7rem">${label}</div><div class="chip ${tone}" style="font-size:1.05rem; margin-top:.3rem">${value}</div></div>`;
+const chip = (l, v, tone = '') => `<span class="chip ${tone}">${l}: ${v}</span>`;
+
+async function loadObservability() {
+  const [ov, fleet, fail] = await Promise.all([
+    api('/observability/overview?days=7'),
+    api('/observability/fleet'),
+    api('/observability/failures'),
+  ]);
+  if (ov.ok) renderOverview(ov.body);
+  if (fleet.ok) renderFleet(fleet.body);
+  if (fail.ok) renderFailures(fail.body);
+}
+
+function renderOverview(o) {
+  const t = o.totals || {};
+  const rate = o.success_rate != null ? (o.success_rate * 100).toFixed(1) + '%' : '—';
+  $('obs-kpis').innerHTML =
+    kpi('Transactions (7d)', t.transactions ?? 0, 'accent') +
+    kpi('Volume (7d)', pesewas(t.volume_pesewas), 'success') +
+    kpi('Success rate', rate, t.failed ? 'warning' : 'success') +
+    kpi('Failed / expired', `${t.failed ?? 0} / ${t.expired ?? 0}`, t.failed ? 'danger' : '');
+  const daily = o.daily || [];
+  const max = Math.max(1, ...daily.map((d) => d.volume_pesewas));
+  $('obs-daily').innerHTML =
+    daily
+      .map((d) => {
+        const w = Math.round((d.volume_pesewas / max) * 100);
+        return `<div style="display:flex; align-items:center; gap:.5rem; margin:.15rem 0">
+          <span class="dim" style="width:52px; font-size:.7rem">${d.date.slice(5)}</span>
+          <div style="flex:1; background:var(--surface-overlay); border-radius:4px; overflow:hidden"><div style="width:${w}%; background:var(--accent); height:13px"></div></div>
+          <span class="dim" style="width:150px; text-align:right; font-size:.7rem">${pesewas(d.volume_pesewas)} · ${d.transactions}tx</span>
+        </div>`;
+      })
+      .join('') || '<span class="dim">No transactions yet.</span>';
+  const rows = (arr) =>
+    (arr || []).length
+      ? arr
+          .map(
+            (m) =>
+              `<div style="display:flex; justify-content:space-between; padding:.2rem 0"><span style="font-size:.8rem">${m.id}</span><span class="dim" style="font-size:.72rem">${pesewas(m.volume_pesewas)} · ${m.transactions}tx</span></div>`
+          )
+          .join('')
+      : '<span class="dim">—</span>';
+  $('obs-top-merchants').innerHTML = rows(o.top_merchants);
+  $('obs-top-devices').innerHTML = rows(o.top_soundboxes);
+}
+
+function renderFleet(f) {
+  const s = f.summary || {};
+  const nets = Object.entries(s.networks || {})
+    .map(([k, v]) => chip(k, v, 'accent'))
+    .join(' ') || '<span class="dim">no telemetry yet</span>';
+  $('obs-fleet').innerHTML =
+    `<div style="margin-bottom:.4rem; display:flex; gap:.4rem; flex-wrap:wrap">${chip('Online', `${s.online ?? 0}/${s.total ?? 0}`, s.online ? 'success' : '')} ${chip('Avg battery', s.avg_battery != null ? s.avg_battery + '%' : '—')} ${nets}</div>` +
+    (f.devices || [])
+      .map(
+        (d) => `<div style="display:flex; gap:.5rem; align-items:center; padding:.15rem 0">
+        <span class="chip ${d.online ? 'success' : 'danger'}" style="font-size:.6rem">${d.online ? 'online' : 'offline'}</span>
+        <span style="font-size:.8rem">${d.serial_number}</span>
+        <span class="dim" style="font-size:.7rem">${d.network_type || '—'} · ${d.battery != null ? d.battery + '%' : '—'} · seen ${d.last_seen_at ? new Date(d.last_seen_at).toLocaleTimeString() : 'never'}</span>
+      </div>`
+      )
+      .join('');
+}
+
+function renderFailures(f) {
+  const dlq = Object.entries(f.dlq_depths || {})
+    .map(([k, v]) => chip(k, v < 0 ? '?' : v, v > 0 ? 'danger' : v < 0 ? 'dim' : 'success'))
+    .join(' ');
+  const rows =
+    (f.recent_failures || [])
+      .map(
+        (x) => `<div style="display:flex; gap:.5rem; align-items:center; padding:.15rem 0">
+        <span class="chip ${x.status === 'EXPIRED' ? 'warning' : 'danger'}" style="font-size:.6rem">${x.status}</span>
+        <span class="dim" style="font-size:.7rem">${x.payment_id}</span>
+        <span class="dim" style="font-size:.7rem">${x.reason || ''}</span>
+        <button class="small secondary" onclick="obsTrace('${x.payment_id}')">trace</button>
+      </div>`
+      )
+      .join('') || '<span class="dim">No recent failures 🎉</span>';
+  $('obs-failures').innerHTML = `<div style="margin-bottom:.4rem; display:flex; gap:.4rem; flex-wrap:wrap">${dlq}</div>${rows}`;
+}
+
+window.obsTrace = async (pid) => {
+  $('obs-trace-id').value = pid;
+  const res = await api('/observability/trace/' + encodeURIComponent(pid));
+  if (!res.ok) {
+    $('obs-trace').innerHTML = `<span class="chip danger">${res.body?.error?.message || 'not found'}</span>`;
+    return;
+  }
+  const t = res.body;
+  $('obs-trace').innerHTML =
+    `<div class="dim" style="font-size:.72rem; margin-bottom:.3rem">${t.status} · ${pesewas(t.amount_pesewas)} · total ${t.total_ms}ms</div>` +
+    (t.timeline || [])
+      .map(
+        (e) => `<div style="display:flex; gap:.5rem; align-items:center; padding:.12rem 0">
+        <span class="chip accent" style="font-size:.6rem">${e.event_type}</span>
+        <span class="dim" style="font-size:.7rem">${new Date(e.ts).toLocaleTimeString()}</span>
+        ${e.delta_ms ? `<span class="dim" style="font-size:.7rem">+${e.delta_ms}ms</span>` : ''}
+      </div>`
+      )
+      .join('');
+};
+$('obs-refresh').addEventListener('click', loadObservability);
+$('obs-trace-btn').addEventListener('click', () => {
+  const v = $('obs-trace-id').value.trim();
+  if (v) obsTrace(v);
+});
+
 async function start() {
   if (!KEY) return;
   show('key-card', false); show('portal');
-  await loadMerchants(); loadDevices(); loadCosts();
+  await loadMerchants(); loadDevices(); loadCosts(); loadObservability();
   if (devicePollTimer) clearInterval(devicePollTimer);
   devicePollTimer = setInterval(loadDevices, 15000); // keep pairing state fresh (device list read ~ $0.000001)
 }
