@@ -354,10 +354,12 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     const obsTrace = make('obs-trace', 'observability/handlers.ts', 'traceHandler');
     const obsFailures = make('obs-failures', 'observability/handlers.ts', 'failuresHandler');
     const obsFleet = make('obs-fleet', 'observability/handlers.ts', 'fleetHandler');
+    const obsLatency = make('obs-latency', 'observability/handlers.ts', 'latencyHandler');
     foundation.metricsTable.grantReadData(obsOverview);
     foundation.paymentsTable.grantReadData(obsTrace);
     foundation.paymentsTable.grantReadData(obsFailures);
     foundation.devicesTable.grantReadData(obsFleet);
+    foundation.paymentsTable.grantReadData(obsLatency);
     obsFailures.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ['sqs:GetQueueAttributes'],
@@ -368,6 +370,7 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     obs.addResource('overview').addMethod('GET', integrate(obsOverview), adminOpts);
     obs.addResource('failures').addMethod('GET', integrate(obsFailures), adminOpts);
     obs.addResource('fleet').addMethod('GET', integrate(obsFleet), adminOpts);
+    obs.addResource('latency').addMethod('GET', integrate(obsLatency), adminOpts);
     obs.addResource('trace').addResource('{payment_id}').addMethod('GET', integrate(obsTrace), adminOpts);
 
     // Announcer: payment.confirmed -> announce-once guard -> per-device MQTT publish
@@ -423,6 +426,7 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     const statusUpdater = make('device-status-updater', 'devices/status-updater.ts');
     foundation.devicesTable.grantReadWriteData(statusUpdater);
     foundation.telemetryTable.grantWriteData(statusUpdater); // connectivity time-series
+    foundation.paymentsTable.grantReadWriteData(statusUpdater); // played_at + DEVICE_PLAYED on audio acks
     const heartbeatRule = new iot.CfnTopicRule(this, 'HeartbeatRule', {
       ruleName: `${stage.replace(/-/g, '_')}_ghana_heartbeat`,
       topicRulePayload: {

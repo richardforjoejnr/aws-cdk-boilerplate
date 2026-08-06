@@ -99,6 +99,14 @@
         <div style="flex:1; min-width:220px"><div class="dim" style="margin:.4rem 0">Top stores by volume</div><div id="obs-top-merchants"></div></div>
         <div style="flex:1; min-width:220px"><div class="dim" style="margin:.4rem 0">Top soundboxes by volume</div><div id="obs-top-devices"></div></div>
       </div>
+      <div class="dim" style="margin:.8rem 0 .3rem">Latency — how fast the vendor hears the money (target &lt; 5s webhook → audio)</div>
+      <div id="obs-latency-kpis" style="display:flex; gap:.6rem; flex-wrap:wrap; margin:.5rem 0"></div>
+      <div style="display:flex; gap:1rem; flex-wrap:wrap">
+        <div style="flex:1; min-width:240px"><div class="dim" style="margin:.4rem 0">Where the time goes (p50 / p95)</div><div id="obs-latency-segments"></div></div>
+        <div style="flex:1; min-width:240px"><div class="dim" style="margin:.4rem 0">Wi-Fi vs mobile data</div><div id="obs-latency-networks"></div></div>
+      </div>
+      <div class="dim" style="margin:.8rem 0 .3rem">Recent payments — click trace to see any payment's full lifecycle</div>
+      <div id="obs-recent"></div>
       <div class="dim" style="margin:.8rem 0 .3rem">Fleet &amp; network</div>
       <div id="obs-fleet"></div>
       <div class="dim" style="margin:.8rem 0 .3rem">Recent failures &amp; dead-letter queues</div>
@@ -536,14 +544,76 @@ const kpi = (label, value, tone = '') =>
 const chip = (l, v, tone = '') => `<span class="chip ${tone}">${l}: ${v}</span>`;
 
 async function loadObservability() {
-  const [ov, fleet, fail] = await Promise.all([
+  const [ov, fleet, fail, lat] = await Promise.all([
     api('/observability/overview?days=7'),
     api('/observability/fleet'),
     api('/observability/failures'),
+    api('/observability/latency?days=7'),
   ]);
   if (ov.ok) renderOverview(ov.body);
   if (fleet.ok) renderFleet(fleet.body);
   if (fail.ok) renderFailures(fail.body);
+  if (lat.ok) renderLatency(lat.body);
+}
+
+const fmtMs = (ms) => (ms == null ? '—' : ms >= 1000 ? (ms / 1000).toFixed(1) + 's' : ms + 'ms');
+const fmtRate = (r) => (r == null ? '—' : (r * 100).toFixed(0) + '%');
+
+function renderLatency(l) {
+  const t = l.totals || {};
+  const seg = l.segments || {};
+  const slo = seg.webhook_to_audio || {};
+  const sloTone = t.under_target_rate == null ? '' : t.under_target_rate >= 0.95 ? 'success' : t.under_target_rate >= 0.8 ? 'warning' : 'danger';
+  $('obs-latency-kpis').innerHTML =
+    kpi('Webhook → audio p50', fmtMs(slo.p50_ms), 'accent') +
+    kpi('Webhook → audio p95', fmtMs(slo.p95_ms), slo.p95_ms != null && slo.p95_ms < l.target_ms ? 'success' : 'warning') +
+    kpi(`Under ${fmtMs(l.target_ms)} target`, fmtRate(t.under_target_rate), sloTone) +
+    kpi('Audio delivery rate', `${fmtRate(t.delivery_rate)} (${t.played ?? 0}/${t.announced ?? 0})`, t.delivery_rate == null ? '' : t.delivery_rate >= 0.95 ? 'success' : 'danger');
+
+  const segments = [
+    ['Initiated → confirmed (provider)', seg.initiated_to_confirmed],
+    ['Confirmed → announced (broker)', seg.confirmed_to_announced],
+    ['Announced → played (device)', seg.announced_to_played],
+    ['End to end (initiated → played)', seg.end_to_end],
+  ];
+  const maxP95 = Math.max(1, ...segments.map(([, s]) => s?.p95_ms || 0));
+  $('obs-latency-segments').innerHTML = segments
+    .map(([label, s]) => {
+      const w = Math.round(((s?.p50_ms || 0) / maxP95) * 100);
+      return `<div style="margin:.3rem 0">
+        <div style="display:flex; justify-content:space-between"><span class="dim" style="font-size:.7rem">${label}</span><span class="dim" style="font-size:.7rem">${fmtMs(s?.p50_ms)} / ${fmtMs(s?.p95_ms)}</span></div>
+        <div style="background:var(--surface-overlay); border-radius:4px; overflow:hidden"><div style="width:${Math.max(w, 2)}%; background:var(--accent); height:9px"></div></div>
+      </div>`;
+    })
+    .join('');
+
+  const nets = Object.entries(l.by_network || {}).sort(([, a], [, b]) => (b.played || 0) - (a.played || 0));
+  $('obs-latency-networks').innerHTML = nets.length
+    ? nets
+        .map(
+          ([name, n]) => `<div style="display:flex; gap:.5rem; align-items:center; padding:.18rem 0">
+        <span class="chip ${name === 'WIFI' ? 'accent' : 'warning'}" style="font-size:.62rem; min-width:44px; text-align:center">${name}</span>
+        <span class="dim" style="font-size:.7rem">${n.played} played</span>
+        <span class="dim" style="font-size:.7rem">p50 ${fmtMs(n.p50_webhook_to_audio_ms)} · p95 ${fmtMs(n.p95_webhook_to_audio_ms)}</span>
+        <span class="chip ${n.under_target_rate == null ? '' : n.under_target_rate >= 0.95 ? 'success' : n.under_target_rate >= 0.8 ? 'warning' : 'danger'}" style="font-size:.62rem">${fmtRate(n.under_target_rate)} &lt; ${fmtMs(l.target_ms)}</span>
+      </div>`
+        )
+        .join('')
+    : '<span class="dim">No audio confirmations yet — devices report network + played acks on each announcement.</span>';
+
+  $('obs-recent').innerHTML = (l.recent || []).length
+    ? l.recent
+        .map(
+          (p) => `<div style="display:flex; gap:.5rem; align-items:center; padding:.15rem 0">
+        <span class="dim" style="font-size:.7rem; font-family:monospace">${p.payment_id}</span>
+        <span class="dim" style="font-size:.7rem">${pesewas(p.amount_pesewas)}</span>
+        <span class="dim" style="font-size:.7rem">${p.created_at ? new Date(p.created_at).toLocaleTimeString() : ''}</span>
+        ${p.webhook_to_audio_ms != null ? `<span class="chip ${p.webhook_to_audio_ms < l.target_ms ? 'success' : 'warning'}" style="font-size:.6rem">🔊 ${fmtMs(p.webhook_to_audio_ms)}${p.network_type ? ' · ' + p.network_type : ''}</span>` : '<span class="chip" style="font-size:.6rem">no audio ack</span>'}
+        <button class="small secondary" onclick="obsTrace('${p.payment_id}')">trace</button>
+      </div>`
+        )
+        .join('')
+    : '<span class="dim">No successful payments in the window yet.</span>';
 }
 
 function renderOverview(o) {

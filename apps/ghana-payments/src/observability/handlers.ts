@@ -143,6 +143,170 @@ export const traceHandler = async (
   }
 };
 
+/** Concept §15 NFR: webhook -> soundbox audio must land under 5 seconds. */
+const LATENCY_TARGET_MS = 5000;
+
+interface PaymentTimes {
+  payment_id?: string;
+  merchant_id?: string;
+  amount_pesewas?: number;
+  created_at?: string;
+  confirmed_at?: string;
+  announced_at?: string;
+  played_at?: string;
+  played_network_type?: string;
+}
+
+const span = (from?: string, to?: string): number | null => {
+  if (!from || !to) return null;
+  const ms = Date.parse(to) - Date.parse(from);
+  return Number.isFinite(ms) && ms >= 0 ? ms : null;
+};
+
+/** Nearest-rank percentile over an unsorted sample; null when empty. */
+const percentile = (values: number[], p: number): number | null => {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)];
+};
+
+const segmentStats = (values: number[]): { count: number; p50_ms: number | null; p95_ms: number | null; avg_ms: number | null } => ({
+  count: values.length,
+  p50_ms: percentile(values, 0.5),
+  p95_ms: percentile(values, 0.95),
+  avg_ms: values.length ? Math.round(values.reduce((a, v) => a + v, 0) / values.length) : null,
+});
+
+/**
+ * GET /v1/observability/latency?days=7 — how fast the vendor hears the money.
+ * Computed from SUCCESS payment records (GSI2) which carry the full timestamp
+ * chain created_at -> confirmed_at -> announced_at -> played_at, split by the
+ * network the soundbox reported when it played (Wi-Fi vs mobile data).
+ */
+export const latencyHandler = async (
+  event: APIGatewayProxyEvent
+): Promise<APIGatewayProxyResult> => {
+  try {
+    const days = Math.min(90, Math.max(1, parseInt(event.queryStringParameters?.days ?? '7', 10) || 7));
+    const startIso = new Date(Date.now() - days * 86_400_000).toISOString();
+
+    // Page through recent SUCCESS payments (bounded — PoC scale).
+    const items: PaymentTimes[] = [];
+    let lastKey: Record<string, unknown> | undefined;
+    do {
+      const r = await ddb.send(
+        new QueryCommand({
+          TableName: PAYMENTS(),
+          IndexName: 'GSI2',
+          KeyConditionExpression: '#s = :st AND created_at >= :start',
+          ExpressionAttributeNames: { '#s': 'status' },
+          ExpressionAttributeValues: { ':st': 'SUCCESS', ':start': startIso },
+          ExclusiveStartKey: lastKey,
+        })
+      );
+      items.push(...((r.Items ?? []) as PaymentTimes[]));
+      lastKey = r.LastEvaluatedKey as Record<string, unknown> | undefined;
+    } while (lastKey && items.length < 5000);
+
+    const initiatedToConfirmed: number[] = [];
+    const confirmedToAnnounced: number[] = [];
+    const announcedToPlayed: number[] = [];
+    const webhookToAudio: number[] = [];
+    const endToEnd: number[] = [];
+    let announced = 0;
+    let played = 0;
+    const byNetwork = new Map<string, { slo: number[]; delivery: number[] }>();
+    const byDay = new Map<string, { slo: number[]; played: number }>();
+
+    for (const p of items) {
+      const provider = span(p.created_at, p.confirmed_at);
+      if (provider !== null) initiatedToConfirmed.push(provider);
+      const announce = span(p.confirmed_at, p.announced_at);
+      if (announce !== null) confirmedToAnnounced.push(announce);
+      if (p.announced_at) announced += 1;
+      if (!p.played_at) continue;
+      played += 1;
+
+      const delivery = span(p.announced_at, p.played_at);
+      if (delivery !== null) announcedToPlayed.push(delivery);
+      const slo = span(p.confirmed_at, p.played_at);
+      const e2e = span(p.created_at, p.played_at);
+      if (e2e !== null) endToEnd.push(e2e);
+
+      const network = p.played_network_type ?? 'UNKNOWN';
+      const net = byNetwork.get(network) ?? { slo: [], delivery: [] };
+      byNetwork.set(network, net);
+      const day = (p.created_at ?? '').slice(0, 10);
+      const daily = byDay.get(day) ?? { slo: [], played: 0 };
+      byDay.set(day, daily);
+      daily.played += 1;
+      if (slo !== null) {
+        webhookToAudio.push(slo);
+        net.slo.push(slo);
+        daily.slo.push(slo);
+      }
+      if (delivery !== null) net.delivery.push(delivery);
+    }
+
+    const underTarget = (slos: number[]): number | null =>
+      slos.length ? +(slos.filter((v) => v < LATENCY_TARGET_MS).length / slos.length).toFixed(4) : null;
+
+    const by_network: Record<string, unknown> = {};
+    for (const [network, v] of byNetwork) {
+      by_network[network] = {
+        played: v.slo.length,
+        p50_webhook_to_audio_ms: percentile(v.slo, 0.5),
+        p95_webhook_to_audio_ms: percentile(v.slo, 0.95),
+        p50_delivery_ms: percentile(v.delivery, 0.5),
+        under_target_rate: underTarget(v.slo),
+      };
+    }
+    const daily = [...byDay.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([date, v]) => ({
+        date,
+        played: v.played,
+        p50_webhook_to_audio_ms: percentile(v.slo, 0.5),
+        under_target_rate: underTarget(v.slo),
+      }));
+
+    return ok({
+      days,
+      target_ms: LATENCY_TARGET_MS,
+      totals: {
+        success: items.length,
+        announced,
+        played,
+        delivery_rate: announced ? +(played / announced).toFixed(4) : null,
+        under_target_rate: underTarget(webhookToAudio),
+      },
+      segments: {
+        initiated_to_confirmed: segmentStats(initiatedToConfirmed),
+        confirmed_to_announced: segmentStats(confirmedToAnnounced),
+        announced_to_played: segmentStats(announcedToPlayed),
+        webhook_to_audio: segmentStats(webhookToAudio),
+        end_to_end: segmentStats(endToEnd),
+      },
+      by_network,
+      daily,
+      // Newest first, so the portal can surface payment ids for one-click tracing.
+      recent: [...items]
+        .sort((a, b) => (String(a.created_at) < String(b.created_at) ? 1 : -1))
+        .slice(0, 15)
+        .map((p) => ({
+          payment_id: p.payment_id ?? null,
+          merchant_id: p.merchant_id ?? null,
+          amount_pesewas: p.amount_pesewas ?? null,
+          created_at: p.created_at ?? null,
+          network_type: p.played_at ? (p.played_network_type ?? 'UNKNOWN') : null,
+          webhook_to_audio_ms: span(p.confirmed_at, p.played_at),
+        })),
+    });
+  } catch (err) {
+    return handleError(err);
+  }
+};
+
 /** GET /v1/observability/failures — recent failed/expired payments + DLQ backlog. */
 export const failuresHandler = async (): Promise<APIGatewayProxyResult> => {
   try {

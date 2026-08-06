@@ -114,6 +114,30 @@ export class GhanaPaymentsMonitoringStack extends cdk.Stack {
         width: 12,
       })
     );
+    // Concept §15 SLO: webhook → soundbox audio under 5s. Split by the network the
+    // device played on (WIFI vs mobile data) — the pilot's connectivity decision.
+    const byNetwork = (metricName: string, network: string): cw.Metric =>
+      new cw.Metric({
+        namespace: ns,
+        metricName,
+        dimensionsMap: { network_type: network },
+        statistic: 'p90',
+        period: cdk.Duration.minutes(5),
+        label: `${network} p90`,
+      });
+    dash.addWidgets(
+      new cw.GraphWidget({
+        title: 'Webhook → audio played (SLO < 5s)',
+        left: [custom('WebhookToAudioMs', 'Average', 'avg'), custom('WebhookToAudioMs', 'p90', 'p90')],
+        right: [custom('AnnouncementPlayedCount', 'Sum', 'played')],
+        width: 12,
+      }),
+      new cw.GraphWidget({
+        title: 'Delivery latency by network (announced → played)',
+        left: ['WIFI', '4G', '3G', '2G', 'OTHER'].map((n) => byNetwork('DeliveryLatencyMs', n)),
+        width: 12,
+      })
+    );
     dash.addWidgets(
       new cw.GraphWidget({
         title: 'API Gateway',

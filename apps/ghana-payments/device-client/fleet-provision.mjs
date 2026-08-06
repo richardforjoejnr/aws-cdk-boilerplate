@@ -139,6 +139,8 @@ function listen(device) {
       if (msg.payment_id) seen.add(msg.payment_id);
       console.log(`\x1b[32m🔊 ${msg.message}\x1b[0m`);
       speak(msg.message);
+      // Audio-played ack: closes the latency loop (played_at + per-network SLO metrics).
+      client.publish(device.topics.heartbeat, JSON.stringify({ status: 'played', payment_id: msg.payment_id, battery: 100, network_type: NETWORK, signal: -58 }), { qos: 1 });
     } else if (topic === device.topics.commands) {
       if (msg.event_type === 'TEST_ANNOUNCEMENT') speak('Test announcement. Soundbox is working.');
       console.log('command:', JSON.stringify(msg));

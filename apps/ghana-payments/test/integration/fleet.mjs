@@ -240,6 +240,24 @@ async function main() {
   const fails = await api('GET', '/v1/observability/failures', { admin: true });
   check(fails.status === 200 && typeof fails.body.dlq_depths === 'object', 'failures endpoint returns DLQ depths');
 
+  // -- 7b. audio-played ack closes the latency loop --------------------------
+  // Publish the ack on the Thing-name heartbeat topic (as real fleet devices do)
+  // — also guards the thing-name -> device_id resolution in the status-updater.
+  console.log('played ack → latency endpoint');
+  device.publish(`devices/${state.thingName}/heartbeat`,
+    JSON.stringify({ status: 'played', payment_id: state.paymentId, battery: 100, network_type: 'WIFI', signal: -58 }), { qos: 1 });
+  await sleep(5000); // IoT rule -> status-updater -> played_at + DEVICE_PLAYED
+
+  const trace2 = await api('GET', `/v1/observability/trace/${state.paymentId}`, { admin: true });
+  const types2 = (trace2.body?.timeline ?? []).map((e) => e.event_type);
+  check(types2.includes('DEVICE_PLAYED'), `trace records the audio confirmation (${types2.join(' → ')})`);
+
+  const lat = await api('GET', '/v1/observability/latency?days=1', { admin: true });
+  check(lat.status === 200 && lat.body.target_ms === 5000, 'latency endpoint reports the <5s SLO target');
+  check((lat.body?.totals?.played ?? 0) >= 1, `latency totals count the played announcement (${lat.body?.totals?.played})`);
+  check(lat.body?.by_network?.WIFI?.played >= 1, 'latency is broken down by network type (WIFI)');
+  check(lat.body?.segments?.webhook_to_audio?.p50_ms != null, `webhook→audio p50 measured (${lat.body?.segments?.webhook_to_audio?.p50_ms}ms)`);
+
   // -- 8. unassign ------------------------------------------------------------
   const un = await api('POST', `/v1/devices/${state.deviceId}/unassign`, { admin: true });
   check(un.status === 200 && un.body.status === 'PROVISIONED', 'device unassigned back to PROVISIONED');

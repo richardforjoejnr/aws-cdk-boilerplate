@@ -4,7 +4,7 @@ import { DynamoDBDocumentClient, QueryCommand, ScanCommand } from '@aws-sdk/lib-
 import { GetQueueAttributesCommand, SQSClient } from '@aws-sdk/client-sqs';
 import type { APIGatewayProxyEvent } from 'aws-lambda';
 import { ddb } from '../shared/clients.js';
-import { overviewHandler, traceHandler, failuresHandler, fleetHandler } from './handlers.js';
+import { overviewHandler, traceHandler, failuresHandler, fleetHandler, latencyHandler } from './handlers.js';
 
 const ddbMock = mockClient(ddb as unknown as DynamoDBDocumentClient);
 const sqsMock = mockClient(SQSClient);
@@ -101,6 +101,107 @@ describe('fleet', () => {
     expect(b.summary.online).toBe(1);
     expect(b.summary.networks).toEqual({ '4G': 1, WIFI: 1 });
     expect(b.summary.avg_battery).toBe(60);
+  });
+});
+
+describe('latency', () => {
+  // Four SUCCESS payments spanning the flow permutations:
+  //  pay_1  4G   played, webhook->audio 1500ms  (under the 5s target)
+  //  pay_2  WIFI played, webhook->audio 6000ms  (over the target)
+  //  pay_3  --   announced but never played (delivery gap)
+  //  pay_4  --   never announced (no paired device)
+  const payments = [
+    {
+      payment_id: 'pay_1', status: 'SUCCESS',
+      created_at: '2026-08-05T10:00:00.000Z',
+      confirmed_at: '2026-08-05T10:00:02.000Z',
+      announced_at: '2026-08-05T10:00:02.500Z',
+      played_at: '2026-08-05T10:00:03.500Z',
+      played_network_type: '4G',
+    },
+    {
+      payment_id: 'pay_2', status: 'SUCCESS',
+      created_at: '2026-08-05T11:00:00.000Z',
+      confirmed_at: '2026-08-05T11:00:02.000Z',
+      announced_at: '2026-08-05T11:00:06.000Z',
+      played_at: '2026-08-05T11:00:08.000Z',
+      played_network_type: 'WIFI',
+    },
+    {
+      payment_id: 'pay_3', status: 'SUCCESS',
+      created_at: '2026-08-05T12:00:00.000Z',
+      confirmed_at: '2026-08-05T12:00:01.000Z',
+      announced_at: '2026-08-05T12:00:01.500Z',
+    },
+    {
+      payment_id: 'pay_4', status: 'SUCCESS',
+      created_at: '2026-08-05T13:00:00.000Z',
+      confirmed_at: '2026-08-05T13:00:01.000Z',
+    },
+  ];
+
+  it('computes segment percentiles, the <5s webhook->audio SLO, and delivery rate', async () => {
+    ddbMock.on(QueryCommand).resolves({ Items: payments });
+    const res = await latencyHandler(event({ days: '7' }));
+    expect(res.statusCode).toBe(200);
+    const b = parse<any>(res);
+
+    expect(b.target_ms).toBe(5000);
+    expect(b.totals.success).toBe(4);
+    expect(b.totals.announced).toBe(3);
+    expect(b.totals.played).toBe(2);
+    expect(b.totals.delivery_rate).toBeCloseTo(2 / 3);
+    expect(b.totals.under_target_rate).toBeCloseTo(0.5); // pay_1 yes, pay_2 no
+
+    // webhook->audio (confirmed_at -> played_at): [1500, 6000]
+    expect(b.segments.webhook_to_audio.count).toBe(2);
+    expect(b.segments.webhook_to_audio.p50_ms).toBe(1500);
+    expect(b.segments.webhook_to_audio.p95_ms).toBe(6000);
+    // initiated -> confirmed across all four: [2000, 2000, 1000, 1000]
+    expect(b.segments.initiated_to_confirmed.count).toBe(4);
+    // announced -> played: [1000, 2000]
+    expect(b.segments.announced_to_played.p50_ms).toBe(1000);
+    // end-to-end (created -> played): [3500, 8000]
+    expect(b.segments.end_to_end.p95_ms).toBe(8000);
+  });
+
+  it('breaks the SLO down by network type (wifi vs mobile data)', async () => {
+    ddbMock.on(QueryCommand).resolves({ Items: payments });
+    const b = parse<any>(await latencyHandler(event({ days: '7' })));
+
+    expect(b.by_network['4G']).toMatchObject({ played: 1 });
+    expect(b.by_network['4G'].p50_webhook_to_audio_ms).toBe(1500);
+    expect(b.by_network['4G'].under_target_rate).toBe(1);
+    expect(b.by_network['WIFI'].p50_webhook_to_audio_ms).toBe(6000);
+    expect(b.by_network['WIFI'].under_target_rate).toBe(0);
+  });
+
+  it('returns a daily series for trend charts', async () => {
+    ddbMock.on(QueryCommand).resolves({ Items: payments });
+    const b = parse<any>(await latencyHandler(event({ days: '7' })));
+    expect(b.daily).toHaveLength(1);
+    expect(b.daily[0]).toMatchObject({ date: '2026-08-05', played: 2 });
+    expect(b.daily[0].under_target_rate).toBeCloseTo(0.5);
+  });
+
+  it('lists recent payments (newest first) so the portal can offer one-click tracing', async () => {
+    ddbMock.on(QueryCommand).resolves({ Items: payments });
+    const b = parse<any>(await latencyHandler(event({ days: '7' })));
+    expect(b.recent).toHaveLength(4);
+    expect(b.recent[0].payment_id).toBe('pay_4'); // newest created_at first
+    expect(b.recent.find((r: any) => r.payment_id === 'pay_1')).toMatchObject({
+      webhook_to_audio_ms: 1500,
+      network_type: '4G',
+    });
+    expect(b.recent.find((r: any) => r.payment_id === 'pay_3').webhook_to_audio_ms).toBeNull();
+  });
+
+  it('handles an empty window', async () => {
+    ddbMock.on(QueryCommand).resolves({ Items: [] });
+    const b = parse<any>(await latencyHandler(event({ days: '1' })));
+    expect(b.totals.success).toBe(0);
+    expect(b.totals.delivery_rate).toBeNull();
+    expect(b.segments.webhook_to_audio.p50_ms).toBeNull();
   });
 });
 

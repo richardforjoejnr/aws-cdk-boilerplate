@@ -10,6 +10,19 @@ end (merchant → service → device), so we know what to harden for production.
 > read APIs + in-portal Observability panel; Phase 3 device/network telemetry;
 > Phase 4 DLQ/error alarms → SNS (`ALARM_EMAIL` optional). Deploy with
 > `./scripts/deploy.sh dev`; the dashboard is `<stage>-ghana-payments` in CloudWatch.
+>
+> **Phase 5 delivered** (branch `feat/ghana-observability`): end-to-end audio
+> latency for the Accra trial. Devices ack `{status:'played', payment_id,
+> network_type}` on their heartbeat topic; the status-updater stamps
+> `played_at`/`played_network_type` on the payment (exactly-once), appends a
+> `DEVICE_PLAYED` event, and emits `WebhookToAudioMs` / `DeliveryLatencyMs` /
+> `EndToEndLatencyMs` / `AnnouncementPlayedCount` dimensioned by `network_type`
+> (Wi-Fi vs mobile data). `GET /v1/observability/latency` serves p50/p95 per
+> segment, the <5s-SLO rate, per-network breakdown, daily trend, and recent
+> payments; the portal has a Latency panel and the dashboard two new widgets.
+> The status-updater also resolves fleet Thing names (`soundbox-<serial>`) to
+> `device_id` via the serial GSI, fixing silently-dropped fleet heartbeats.
+> Success criteria for the trial: `SUCCESS_METRICS.md`.
 
 ## What already exists (build on this)
 
