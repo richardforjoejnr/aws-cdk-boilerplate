@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return */
+import { jest } from '@jest/globals';
 import { mockClient } from 'aws-sdk-client-mock';
 import {
   DynamoDBDocumentClient,
@@ -23,18 +24,18 @@ const puts = (table: string) =>
   ddbMock.commandCalls(PutCommand).filter((c) => c.args[0].input.TableName === table);
 
 /** Collect EMF metric lines written by emitMetrics via console.log. */
-const emfLines = (spy: jest.SpyInstance): any[] =>
+const emfLines = (spy: ReturnType<typeof jest.spyOn>): any[] =>
   spy.mock.calls
-    .map((c) => {
+    .map((c: unknown[]) => {
       try {
         return JSON.parse(String(c[0]));
       } catch {
         return null;
       }
     })
-    .filter((j) => j && j._aws);
+    .filter((j: any) => j && j._aws);
 
-let logSpy: jest.SpyInstance;
+let logSpy: ReturnType<typeof jest.spyOn>;
 
 beforeEach(() => {
   ddbMock.reset();
