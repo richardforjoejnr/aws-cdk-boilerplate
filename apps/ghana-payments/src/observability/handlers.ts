@@ -380,22 +380,15 @@ export const fleetHandler = async (): Promise<APIGatewayProxyResult> => {
           merchant_id: d.merchant_id ?? null,
           online: lastSeen > 0 && nowMs - lastSeen < ONLINE_MS,
           last_seen_at: d.last_seen_at ?? null,
-          battery: d.battery ?? null,
           network_type: d.network_type ?? null,
           signal: d.signal ?? null,
         };
       });
     const networks: Record<string, number> = {};
     let online = 0;
-    let batterySum = 0;
-    let batteryN = 0;
     for (const d of devices) {
       if (d.online) online += 1;
       if (d.network_type) networks[String(d.network_type)] = (networks[String(d.network_type)] ?? 0) + 1;
-      if (typeof d.battery === 'number') {
-        batterySum += d.battery;
-        batteryN += 1;
-      }
     }
     return ok({
       summary: {
@@ -403,7 +396,6 @@ export const fleetHandler = async (): Promise<APIGatewayProxyResult> => {
         online,
         offline: devices.length - online,
         networks,
-        avg_battery: batteryN ? Math.round(batterySum / batteryN) : null,
       },
       devices,
     });

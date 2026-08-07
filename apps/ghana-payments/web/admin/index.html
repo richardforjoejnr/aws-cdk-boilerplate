@@ -656,13 +656,13 @@ function renderFleet(f) {
     .map(([k, v]) => chip(k, v, 'accent'))
     .join(' ') || '<span class="dim">no telemetry yet</span>';
   $('obs-fleet').innerHTML =
-    `<div style="margin-bottom:.4rem; display:flex; gap:.4rem; flex-wrap:wrap">${chip('Online', `${s.online ?? 0}/${s.total ?? 0}`, s.online ? 'success' : '')} ${chip('Avg battery', s.avg_battery != null ? s.avg_battery + '%' : '—')} ${nets}</div>` +
+    `<div style="margin-bottom:.4rem; display:flex; gap:.4rem; flex-wrap:wrap">${chip('Online', `${s.online ?? 0}/${s.total ?? 0}`, s.online ? 'success' : '')} ${nets}</div>` +
     (f.devices || [])
       .map(
         (d) => `<div style="display:flex; gap:.5rem; align-items:center; padding:.15rem 0">
         <span class="chip ${d.online ? 'success' : 'danger'}" style="font-size:.6rem">${d.online ? 'online' : 'offline'}</span>
         <span style="font-size:.8rem">${d.serial_number}</span>
-        <span class="dim" style="font-size:.7rem">${d.network_type || '—'} · ${d.battery != null ? d.battery + '%' : '—'} · seen ${d.last_seen_at ? new Date(d.last_seen_at).toLocaleTimeString() : 'never'}</span>
+        <span class="dim" style="font-size:.7rem">${d.network_type || '—'} · seen ${d.last_seen_at ? new Date(d.last_seen_at).toLocaleTimeString() : 'never'}</span>
       </div>`
       )
       .join('');

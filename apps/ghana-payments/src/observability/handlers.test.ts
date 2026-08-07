@@ -85,7 +85,7 @@ describe('trace', () => {
 });
 
 describe('fleet', () => {
-  it('reports online/offline, network mix and battery', async () => {
+  it('reports online/offline and network mix (no battery — dropped from observability)', async () => {
     const now = new Date().toISOString();
     ddbMock.on(ScanCommand).resolves({
       Items: [
@@ -100,7 +100,8 @@ describe('fleet', () => {
     expect(b.summary.total).toBe(2); // RETIRED excluded
     expect(b.summary.online).toBe(1);
     expect(b.summary.networks).toEqual({ '4G': 1, WIFI: 1 });
-    expect(b.summary.avg_battery).toBe(60);
+    expect(b.summary.avg_battery).toBeUndefined();
+    expect(b.devices[0].battery).toBeUndefined();
   });
 });
 
