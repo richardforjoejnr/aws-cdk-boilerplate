@@ -54,6 +54,9 @@ describe('heartbeat (device row + telemetry)', () => {
     expect(upd).toHaveLength(1);
     expect(upd[0].args[0].input.Key).toEqual({ device_id: 'dev_1' });
     expect(upd[0].args[0].input.ExpressionAttributeValues![':net']).toBe('WIFI');
+    // 'signal' is a DynamoDB reserved keyword — must be aliased or the update throws
+    expect(upd[0].args[0].input.UpdateExpression).not.toMatch(/(^|[^#\w])signal\s*=/);
+    expect(upd[0].args[0].input.ExpressionAttributeNames).toMatchObject({ '#sig': 'signal' });
 
     const tele = puts('test-telemetry');
     expect(tele).toHaveLength(1);

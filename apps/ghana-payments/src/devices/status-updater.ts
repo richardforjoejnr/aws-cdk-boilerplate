@@ -65,9 +65,13 @@ export const handler = async (event: HeartbeatEvent): Promise<void> => {
         UpdateExpression:
           'SET last_seen_at = :now, battery = :battery, #status = :active' +
           (networkType ? ', network_type = :net' : '') +
-          (event.signal !== undefined ? ', signal = :sig' : ''),
+          (event.signal !== undefined ? ', #sig = :sig' : ''),
         ConditionExpression: 'attribute_exists(device_id) AND #status IN (:paired, :active)',
-        ExpressionAttributeNames: { '#status': 'status' },
+        // #sig: 'signal' is a DynamoDB reserved keyword
+        ExpressionAttributeNames: {
+          '#status': 'status',
+          ...(event.signal !== undefined ? { '#sig': 'signal' } : {}),
+        },
         ExpressionAttributeValues: {
           ':now': now.toISOString(),
           ':battery': event.battery ?? null,
