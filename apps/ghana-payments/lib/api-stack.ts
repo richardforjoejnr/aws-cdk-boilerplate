@@ -355,11 +355,14 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     const obsFailures = make('obs-failures', 'observability/handlers.ts', 'failuresHandler');
     const obsFleet = make('obs-fleet', 'observability/handlers.ts', 'fleetHandler');
     const obsLatency = make('obs-latency', 'observability/handlers.ts', 'latencyHandler');
+    const obsBattery = make('obs-battery', 'observability/handlers.ts', 'batteryHandler');
     foundation.metricsTable.grantReadData(obsOverview);
     foundation.paymentsTable.grantReadData(obsTrace);
     foundation.paymentsTable.grantReadData(obsFailures);
     foundation.devicesTable.grantReadData(obsFleet);
     foundation.paymentsTable.grantReadData(obsLatency);
+    foundation.devicesTable.grantReadData(obsBattery);
+    foundation.telemetryTable.grantReadData(obsBattery);
     obsFailures.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ['sqs:GetQueueAttributes'],
@@ -371,6 +374,7 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     obs.addResource('failures').addMethod('GET', integrate(obsFailures), adminOpts);
     obs.addResource('fleet').addMethod('GET', integrate(obsFleet), adminOpts);
     obs.addResource('latency').addMethod('GET', integrate(obsLatency), adminOpts);
+    obs.addResource('battery').addMethod('GET', integrate(obsBattery), adminOpts);
     obs.addResource('trace').addResource('{payment_id}').addMethod('GET', integrate(obsTrace), adminOpts);
 
     // Announcer: payment.confirmed -> announce-once guard -> per-device MQTT publish

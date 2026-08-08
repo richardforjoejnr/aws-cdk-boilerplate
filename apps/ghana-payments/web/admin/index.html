@@ -109,6 +109,8 @@
       <div id="obs-recent"></div>
       <div class="dim" style="margin:.8rem 0 .3rem">Fleet &amp; network</div>
       <div id="obs-fleet"></div>
+      <div class="dim" style="margin:.8rem 0 .3rem">Battery performance — drain per device and per network (24h)</div>
+      <div id="obs-battery"></div>
       <div class="dim" style="margin:.8rem 0 .3rem">Recent failures &amp; dead-letter queues</div>
       <div id="obs-failures"></div>
       <div class="dim" style="margin:.8rem 0 .3rem">Flow trace — paste a payment id to see the whole lifecycle</div>
@@ -544,16 +546,43 @@ const kpi = (label, value, tone = '') =>
 const chip = (l, v, tone = '') => `<span class="chip ${tone}">${l}: ${v}</span>`;
 
 async function loadObservability() {
-  const [ov, fleet, fail, lat] = await Promise.all([
+  const [ov, fleet, fail, lat, bat] = await Promise.all([
     api('/observability/overview?days=7'),
     api('/observability/fleet'),
     api('/observability/failures'),
     api('/observability/latency?days=7'),
+    api('/observability/battery?hours=24'),
   ]);
   if (ov.ok) renderOverview(ov.body);
   if (fleet.ok) renderFleet(fleet.body);
   if (fail.ok) renderFailures(fail.body);
   if (lat.ok) renderLatency(lat.body);
+  if (bat.ok) renderBattery(bat.body);
+}
+
+function renderBattery(b) {
+  const batTone = (v) => (v == null ? '' : v > 50 ? 'success' : v > 20 ? 'warning' : 'danger');
+  const nets = Object.entries(b.by_network || {})
+    .map(([k, v]) => chip(k, `${v.avg_drain_pct_per_hour}%/hr avg (${v.devices} device${v.devices === 1 ? '' : 's'})`, 'accent'))
+    .join(' ');
+  const spark = (series) => {
+    if (!(series || []).length) return '';
+    return `<span style="display:inline-flex; align-items:flex-end; gap:1px; height:16px">${series
+      .map((s) => `<span title="${new Date(s.ts).toLocaleTimeString()} · ${s.battery}%" style="width:3px; height:${Math.max(8, s.battery)}%; min-height:1px; background:var(--accent); border-radius:1px"></span>`)
+      .join('')}</span>`;
+  };
+  const rows = (b.devices || [])
+    .map(
+      (d) => `<div style="display:flex; gap:.5rem; align-items:center; padding:.15rem 0">
+      <span style="font-size:.8rem">${d.serial_number}</span>
+      <span class="chip ${batTone(d.current_battery)}" style="font-size:.6rem">${d.current_battery != null ? d.current_battery + '%' : 'no data'}</span>
+      <span class="dim" style="font-size:.7rem">${d.network_type || '—'} · ${d.drain_pct_per_hour != null ? (d.drain_pct_per_hour >= 0 ? '−' : '+') + Math.abs(d.drain_pct_per_hour) + '%/hr' : 'drain n/a'}</span>
+      ${spark(d.series)}
+    </div>`
+    )
+    .join('') || '<span class="dim">No battery telemetry yet — devices report battery in heartbeats.</span>';
+  $('obs-battery').innerHTML =
+    (nets ? `<div style="margin-bottom:.4rem; display:flex; gap:.4rem; flex-wrap:wrap">${nets}</div>` : '') + rows;
 }
 
 const fmtMs = (ms) => (ms == null ? '—' : ms >= 1000 ? (ms / 1000).toFixed(1) + 's' : ms + 'ms');

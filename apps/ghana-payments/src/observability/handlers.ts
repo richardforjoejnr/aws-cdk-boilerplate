@@ -7,6 +7,7 @@ import { ok, apiError, handleError } from '../shared/http.js';
 const METRICS = (): string => process.env.METRICS_TABLE ?? '';
 const PAYMENTS = (): string => process.env.PAYMENTS_TABLE ?? '';
 const DEVICES = (): string => process.env.DEVICES_TABLE ?? '';
+const TELEMETRY = (): string => process.env.TELEMETRY_TABLE ?? '';
 const sqs = new SQSClient({});
 
 const isoDate = (d: Date): string => d.toISOString().slice(0, 10);
@@ -302,6 +303,74 @@ export const latencyHandler = async (
           webhook_to_audio_ms: span(p.confirmed_at, p.played_at),
         })),
     });
+  } catch (err) {
+    return handleError(err);
+  }
+};
+
+/**
+ * GET /v1/observability/battery?hours=24 — battery performance per device from
+ * the heartbeat telemetry time-series: battery level over time, drain rate
+ * (%/hour), and the per-network drain comparison that feeds the 4G-vs-Wi-Fi
+ * hardware decision. Distinct from the fleet view (which shows connectivity,
+ * not battery).
+ */
+export const batteryHandler = async (
+  event: APIGatewayProxyEvent
+): Promise<APIGatewayProxyResult> => {
+  try {
+    const hours = Math.min(720, Math.max(1, parseInt(event.queryStringParameters?.hours ?? '24', 10) || 24));
+    const startIso = new Date(Date.now() - hours * 3600_000).toISOString();
+
+    const deviceRes = await ddb.send(new ScanCommand({ TableName: DEVICES() }));
+    const activeDevices = ((deviceRes.Items ?? []) as Record<string, unknown>[]).filter(
+      (d) => d.status !== 'RETIRED'
+    );
+
+    const MAX_POINTS = 48;
+    const devices = await Promise.all(
+      activeDevices.map(async (d) => {
+        const t = await ddb.send(
+          new QueryCommand({
+            TableName: TELEMETRY(),
+            KeyConditionExpression: 'device_id = :d AND ts >= :start',
+            ExpressionAttributeValues: { ':d': d.device_id, ':start': startIso },
+          })
+        );
+        const samples = ((t.Items ?? []) as Record<string, unknown>[])
+          .filter((s) => typeof s.battery === 'number')
+          .map((s) => ({ ts: String(s.ts), battery: s.battery as number, network_type: s.network_type as string | null }));
+
+        const first = samples[0];
+        const last = samples[samples.length - 1];
+        const spanHours = first && last ? (Date.parse(last.ts) - Date.parse(first.ts)) / 3600_000 : 0;
+        // Simple end-to-end delta rate; positive = draining, negative = charging.
+        const drain = samples.length >= 2 && spanHours >= 0.5 ? +((first.battery - last.battery) / spanHours).toFixed(1) : null;
+        const step = Math.max(1, Math.ceil(samples.length / MAX_POINTS));
+        return {
+          device_id: d.device_id,
+          serial_number: d.serial_number,
+          network_type: last?.network_type ?? (d.network_type as string | undefined) ?? null,
+          current_battery: last?.battery ?? null,
+          drain_pct_per_hour: drain,
+          samples: samples.length,
+          series: samples.filter((_, i) => i % step === 0 || i === samples.length - 1).map((s) => ({ ts: s.ts, battery: s.battery })),
+        };
+      })
+    );
+
+    const agg = new Map<string, { sum: number; n: number }>();
+    for (const d of devices) {
+      if (d.drain_pct_per_hour === null || !d.network_type) continue;
+      const cur = agg.get(d.network_type) ?? { sum: 0, n: 0 };
+      cur.sum += d.drain_pct_per_hour;
+      cur.n += 1;
+      agg.set(d.network_type, cur);
+    }
+    const by_network: Record<string, { devices: number; avg_drain_pct_per_hour: number }> = {};
+    for (const [net, v] of agg) by_network[net] = { devices: v.n, avg_drain_pct_per_hour: +(v.sum / v.n).toFixed(1) };
+
+    return ok({ hours, devices, by_network });
   } catch (err) {
     return handleError(err);
   }

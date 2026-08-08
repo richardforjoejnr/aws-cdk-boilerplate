@@ -4,7 +4,7 @@ import { DynamoDBDocumentClient, QueryCommand, ScanCommand } from '@aws-sdk/lib-
 import { GetQueueAttributesCommand, SQSClient } from '@aws-sdk/client-sqs';
 import type { APIGatewayProxyEvent } from 'aws-lambda';
 import { ddb } from '../shared/clients.js';
-import { overviewHandler, traceHandler, failuresHandler, fleetHandler, latencyHandler } from './handlers.js';
+import { overviewHandler, traceHandler, failuresHandler, fleetHandler, latencyHandler, batteryHandler } from './handlers.js';
 
 const ddbMock = mockClient(ddb as unknown as DynamoDBDocumentClient);
 const sqsMock = mockClient(SQSClient);
@@ -203,6 +203,60 @@ describe('latency', () => {
     expect(b.totals.success).toBe(0);
     expect(b.totals.delivery_rate).toBeNull();
     expect(b.segments.webhook_to_audio.p50_ms).toBeNull();
+  });
+});
+
+describe('battery', () => {
+  const ago = (h: number): string => new Date(Date.now() - h * 3600_000).toISOString();
+
+  beforeEach(() => {
+    ddbMock.on(ScanCommand).resolves({
+      Items: [
+        { device_id: 'dev_1', serial_number: 'SBX-1', status: 'ACTIVE' },
+        { device_id: 'dev_2', serial_number: 'SBX-2', status: 'ACTIVE' },
+        { device_id: 'dev_3', serial_number: 'SBX-3', status: 'RETIRED' },
+      ],
+    });
+    // dev_1: 100% -> 80% over 4h on 4G = 5%/hr drain
+    ddbMock.on(QueryCommand, { ExpressionAttributeValues: { ':d': 'dev_1' } } as never).resolves({
+      Items: [
+        { device_id: 'dev_1', ts: ago(4), battery: 100, network_type: '4G' },
+        { device_id: 'dev_1', ts: ago(2), battery: 90, network_type: '4G' },
+        { device_id: 'dev_1', ts: ago(0), battery: 80, network_type: '4G' },
+      ],
+    });
+    // dev_2: single sample — no drain computable
+    ddbMock.on(QueryCommand, { ExpressionAttributeValues: { ':d': 'dev_2' } } as never).resolves({
+      Items: [{ device_id: 'dev_2', ts: ago(1), battery: 95, network_type: 'WIFI' }],
+    });
+  });
+
+  it('computes per-device battery series and drain rate from telemetry', async () => {
+    const res = await batteryHandler(event({ hours: '24' }));
+    expect(res.statusCode).toBe(200);
+    const b = parse<any>(res);
+    expect(b.devices).toHaveLength(2); // RETIRED excluded
+    const d1 = b.devices.find((d: any) => d.device_id === 'dev_1');
+    expect(d1.current_battery).toBe(80);
+    expect(d1.network_type).toBe('4G');
+    expect(d1.drain_pct_per_hour).toBeCloseTo(5, 0);
+    expect(d1.series.map((s: any) => s.battery)).toEqual([100, 90, 80]);
+    const d2 = b.devices.find((d: any) => d.device_id === 'dev_2');
+    expect(d2.current_battery).toBe(95);
+    expect(d2.drain_pct_per_hour).toBeNull(); // one sample
+  });
+
+  it('aggregates average drain by network type (the wifi vs mobile comparison)', async () => {
+    const b = parse<any>(await batteryHandler(event({ hours: '24' })));
+    expect(b.by_network['4G'].devices).toBe(1);
+    expect(b.by_network['4G'].avg_drain_pct_per_hour).toBeCloseTo(5, 0);
+    expect(b.by_network.WIFI).toBeUndefined(); // no computable drain -> not aggregated
+  });
+
+  it('handles devices with no telemetry at all', async () => {
+    ddbMock.on(QueryCommand).resolves({ Items: [] });
+    const b = parse<any>(await batteryHandler(event({ hours: '24' })));
+    expect(b.devices.every((d: any) => d.current_battery === null)).toBe(true);
   });
 });
 
