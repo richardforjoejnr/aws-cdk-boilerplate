@@ -426,6 +426,25 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     );
     v1.addResource('costs').addMethod('GET', integrate(costs), adminOpts);
 
+    // MQTT username/password auth (custom authorizer) for hardware without
+    // X.509 client-cert support. Devices connect on 443 + ALPN "mqtt";
+    // credentials provisioned per device via POST /v1/devices/{id}/credentials.
+    const mqttAuthFn = make('mqtt-authorizer', 'devices/custom-authorizer.ts');
+    foundation.devicesTable.grantReadData(mqttAuthFn);
+    const mqttAuthorizer = new iot.CfnAuthorizer(this, 'MqttAuthorizer', {
+      authorizerName: `${stage}-ghana-mqtt-auth`,
+      authorizerFunctionArn: mqttAuthFn.functionArn,
+      signingDisabled: true, // username/password flow — no token signature
+      status: 'ACTIVE',
+    });
+    mqttAuthFn.addPermission('IotAuthInvoke', {
+      principal: new iam.ServicePrincipal('iot.amazonaws.com'),
+      sourceArn: mqttAuthorizer.attrArn,
+    });
+    const deviceCredentials = make('device-credentials', 'devices/credentials.ts', 'credentialsHandler');
+    foundation.devicesTable.grantReadWriteData(deviceCredentials);
+    deviceById.addResource('credentials').addMethod('POST', integrate(deviceCredentials), adminOpts);
+
     // Heartbeats: devices/+/heartbeat -> device status/last-seen
     const statusUpdater = make('device-status-updater', 'devices/status-updater.ts');
     foundation.devicesTable.grantReadWriteData(statusUpdater);
