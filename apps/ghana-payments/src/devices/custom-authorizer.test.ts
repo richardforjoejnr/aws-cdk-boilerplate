@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument */
 import { mockClient } from 'aws-sdk-client-mock';
-import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import type { APIGatewayProxyEvent } from 'aws-lambda';
 import { ddb } from '../shared/clients.js';
 import { hashSecret, credentialsHandler } from './credentials.js';
@@ -9,8 +9,15 @@ import { handler as authorize } from './custom-authorizer.js';
 const ddbMock = mockClient(ddb as unknown as DynamoDBDocumentClient);
 
 process.env.DEVICES_TABLE = 'test-devices';
+process.env.TELEMETRY_TABLE = 'test-telemetry';
 process.env.ACCOUNT_ID = '123456789012';
 process.env.AWS_REGION = 'us-east-1';
+
+const authAudit = () =>
+  ddbMock
+    .commandCalls(PutCommand)
+    .map((c) => c.args[0].input)
+    .filter((i) => i.TableName === 'test-telemetry' && (i.Item as any).device_id === 'MQTT_AUTH');
 
 const SALT = 'a1b2c3d4e5f60708';
 const PASSWORD = 'test-password-123';
@@ -31,14 +38,19 @@ const authEvent = (username: string, password: string, clientId: string) => ({
   },
 });
 
-beforeEach(() => ddbMock.reset());
+beforeEach(() => {
+  ddbMock.reset();
+  ddbMock.on(PutCommand).resolves({});
+});
 
 describe('MQTT custom authorizer (username/password)', () => {
   it('authenticates valid credentials and returns a policy scoped to the device topics', async () => {
     ddbMock.on(GetCommand).resolves({ Item: device() });
     const res: any = await authorize(authEvent('vendor-test-1', PASSWORD, 'vendor-test-1'));
     expect(res.isAuthenticated).toBe(true);
-    expect(res.principalId).toBeTruthy();
+    // AWS requires strictly alphanumeric principalId (([a-zA-Z0-9]){1,128}) —
+    // anything else invalidates the whole response and the broker disconnects.
+    expect(res.principalId).toMatch(/^[a-zA-Z0-9]{1,128}$/);
     const statements = res.policyDocuments[0].Statement;
     const resources = statements.flatMap((s: any) => [s.Resource].flat());
     expect(resources).toContain('arn:aws:iot:us-east-1:123456789012:client/vendor-test-1');
@@ -86,6 +98,24 @@ describe('MQTT custom authorizer (username/password)', () => {
     ddbMock.on(GetCommand).resolves({ Item: device() });
     const res: any = await authorize(authEvent('vendor-test-1', PASSWORD, 'someone-else'));
     expect(res.isAuthenticated).toBe(false);
+  });
+
+  it('audits an ALLOW attempt to the telemetry table (no password material)', async () => {
+    ddbMock.on(GetCommand).resolves({ Item: device() });
+    await authorize(authEvent('vendor-test-1', PASSWORD, 'vendor-test-1'));
+    const rows = authAudit();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].Item).toMatchObject({ username: 'vendor-test-1', client_id: 'vendor-test-1', outcome: 'ALLOW' });
+    expect(JSON.stringify(rows[0].Item)).not.toContain(PASSWORD);
+    expect((rows[0].Item as any).ttl).toBeGreaterThan(Date.now() / 1000);
+  });
+
+  it('audits a DENY attempt with the reason', async () => {
+    ddbMock.on(GetCommand).resolves({ Item: device() });
+    await authorize(authEvent('vendor-test-1', 'wrong-password', 'vendor-test-1'));
+    const rows = authAudit();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].Item).toMatchObject({ outcome: 'DENY', reason: 'bad_password' });
   });
 
   it('scopes fleet devices to their Thing-name topics (client id = thing name)', async () => {
