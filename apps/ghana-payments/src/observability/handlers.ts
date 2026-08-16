@@ -376,6 +376,44 @@ export const batteryHandler = async (
   }
 };
 
+/**
+ * GET /v1/observability/auth?hours=24 — MQTT username/password auth attempts
+ * (custom authorizer audit rows in the telemetry table): who tried to connect,
+ * allowed or denied, and why.
+ */
+export const authAttemptsHandler = async (
+  event: APIGatewayProxyEvent
+): Promise<APIGatewayProxyResult> => {
+  try {
+    const hours = Math.min(720, Math.max(1, parseInt(event.queryStringParameters?.hours ?? '24', 10) || 24));
+    const startIso = new Date(Date.now() - hours * 3600_000).toISOString();
+    const r = await ddb.send(
+      new QueryCommand({
+        TableName: TELEMETRY(),
+        KeyConditionExpression: 'device_id = :a AND ts >= :start',
+        ExpressionAttributeValues: { ':a': 'MQTT_AUTH', ':start': startIso },
+        ScanIndexForward: false,
+        Limit: 100,
+      })
+    );
+    const attempts = ((r.Items ?? []) as Record<string, unknown>[]).map((i) => ({
+      ts: String(i.ts).split('#')[0], // strip the uniqueness suffix
+      username: i.username ?? null,
+      client_id: i.client_id ?? null,
+      outcome: i.outcome ?? null,
+      reason: i.reason ?? null,
+    }));
+    const allowed = attempts.filter((a) => a.outcome === 'ALLOW').length;
+    return ok({
+      hours,
+      summary: { total: attempts.length, allowed, denied: attempts.length - allowed },
+      attempts,
+    });
+  } catch (err) {
+    return handleError(err);
+  }
+};
+
 /** GET /v1/observability/failures — recent failed/expired payments + DLQ backlog. */
 export const failuresHandler = async (): Promise<APIGatewayProxyResult> => {
   try {

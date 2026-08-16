@@ -4,7 +4,7 @@ import { DynamoDBDocumentClient, QueryCommand, ScanCommand } from '@aws-sdk/lib-
 import { GetQueueAttributesCommand, SQSClient } from '@aws-sdk/client-sqs';
 import type { APIGatewayProxyEvent } from 'aws-lambda';
 import { ddb } from '../shared/clients.js';
-import { overviewHandler, traceHandler, failuresHandler, fleetHandler, latencyHandler, batteryHandler } from './handlers.js';
+import { overviewHandler, traceHandler, failuresHandler, fleetHandler, latencyHandler, batteryHandler, authAttemptsHandler } from './handlers.js';
 
 const ddbMock = mockClient(ddb as unknown as DynamoDBDocumentClient);
 const sqsMock = mockClient(SQSClient);
@@ -257,6 +257,30 @@ describe('battery', () => {
     ddbMock.on(QueryCommand).resolves({ Items: [] });
     const b = parse<any>(await batteryHandler(event({ hours: '24' })));
     expect(b.devices.every((d: any) => d.current_battery === null)).toBe(true);
+  });
+});
+
+describe('auth attempts', () => {
+  it('lists MQTT auth attempts newest first with allow/deny counts', async () => {
+    ddbMock.on(QueryCommand).resolves({
+      Items: [
+        { device_id: 'MQTT_AUTH', ts: '2026-08-09T10:02:00.000Z#b1', username: 'vendor-test-1', client_id: 'vendor-test-1', outcome: 'DENY', reason: 'bad_password' },
+        { device_id: 'MQTT_AUTH', ts: '2026-08-09T10:01:00.000Z#a1', username: 'vendor-test-1', client_id: 'vendor-test-1', outcome: 'ALLOW', reason: null },
+      ],
+    });
+    const res = await authAttemptsHandler(event({ hours: '24' }));
+    expect(res.statusCode).toBe(200);
+    const b = parse<any>(res);
+    expect(b.summary).toEqual({ total: 2, allowed: 1, denied: 1 });
+    expect(b.attempts[0]).toMatchObject({ outcome: 'DENY', reason: 'bad_password', username: 'vendor-test-1' });
+    expect(b.attempts[0].ts).toBe('2026-08-09T10:02:00.000Z'); // uniqueness suffix stripped
+  });
+
+  it('handles an empty window', async () => {
+    ddbMock.on(QueryCommand).resolves({ Items: [] });
+    const b = parse<any>(await authAttemptsHandler(event({})));
+    expect(b.summary).toEqual({ total: 0, allowed: 0, denied: 0 });
+    expect(b.attempts).toEqual([]);
   });
 });
 

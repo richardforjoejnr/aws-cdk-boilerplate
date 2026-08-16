@@ -356,6 +356,8 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     const obsFleet = make('obs-fleet', 'observability/handlers.ts', 'fleetHandler');
     const obsLatency = make('obs-latency', 'observability/handlers.ts', 'latencyHandler');
     const obsBattery = make('obs-battery', 'observability/handlers.ts', 'batteryHandler');
+    const obsAuth = make('obs-auth', 'observability/handlers.ts', 'authAttemptsHandler');
+    foundation.telemetryTable.grantReadData(obsAuth);
     foundation.metricsTable.grantReadData(obsOverview);
     foundation.paymentsTable.grantReadData(obsTrace);
     foundation.paymentsTable.grantReadData(obsFailures);
@@ -375,6 +377,7 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     obs.addResource('fleet').addMethod('GET', integrate(obsFleet), adminOpts);
     obs.addResource('latency').addMethod('GET', integrate(obsLatency), adminOpts);
     obs.addResource('battery').addMethod('GET', integrate(obsBattery), adminOpts);
+    obs.addResource('auth').addMethod('GET', integrate(obsAuth), adminOpts);
     obs.addResource('trace').addResource('{payment_id}').addMethod('GET', integrate(obsTrace), adminOpts);
 
     // Announcer: payment.confirmed -> announce-once guard -> per-device MQTT publish
@@ -425,6 +428,26 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
       })
     );
     v1.addResource('costs').addMethod('GET', integrate(costs), adminOpts);
+
+    // MQTT username/password auth (custom authorizer) for hardware without
+    // X.509 client-cert support. Devices connect on 443 + ALPN "mqtt";
+    // credentials provisioned per device via POST /v1/devices/{id}/credentials.
+    const mqttAuthFn = make('mqtt-authorizer', 'devices/custom-authorizer.ts');
+    foundation.devicesTable.grantReadData(mqttAuthFn);
+    foundation.telemetryTable.grantWriteData(mqttAuthFn); // auth-attempt audit rows
+    const mqttAuthorizer = new iot.CfnAuthorizer(this, 'MqttAuthorizer', {
+      authorizerName: `${stage}-ghana-mqtt-auth`,
+      authorizerFunctionArn: mqttAuthFn.functionArn,
+      signingDisabled: true, // username/password flow — no token signature
+      status: 'ACTIVE',
+    });
+    mqttAuthFn.addPermission('IotAuthInvoke', {
+      principal: new iam.ServicePrincipal('iot.amazonaws.com'),
+      sourceArn: mqttAuthorizer.attrArn,
+    });
+    const deviceCredentials = make('device-credentials', 'devices/credentials.ts', 'credentialsHandler');
+    foundation.devicesTable.grantReadWriteData(deviceCredentials);
+    deviceById.addResource('credentials').addMethod('POST', integrate(deviceCredentials), adminOpts);
 
     // Heartbeats: devices/+/heartbeat -> device status/last-seen
     const statusUpdater = make('device-status-updater', 'devices/status-updater.ts');
