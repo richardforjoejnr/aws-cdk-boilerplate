@@ -27,6 +27,7 @@ if (!claimDir || !serial) {
   process.exit(1);
 }
 const provisionOnly = flags.includes('--provision-only');
+const NETWORK = (flags.find((a) => a.startsWith('--network=')) || '').split('=')[1]?.toUpperCase() || 'WIFI';
 const claim = JSON.parse(readFileSync(join(claimDir, 'claim.json'), 'utf8'));
 const endpoint = claim.iot_endpoint;
 const template = claim.template_name;
@@ -127,7 +128,7 @@ function listen(device) {
     client.subscribe([device.topics.payments, device.topics.commands], { qos: 1 }, (err) => {
       if (err) return console.error('subscribe failed:', err.message);
       console.log(`\x1b[32m✓ live\x1b[0m — waiting for payments. Assign this device to a store, then pay.`);
-      client.publish(device.topics.heartbeat, JSON.stringify({ status: 'online' }), { qos: 1 });
+      client.publish(device.topics.heartbeat, JSON.stringify({ status: 'online', battery: 100, network_type: NETWORK, signal: -58 }), { qos: 1 });
     });
   });
   client.on('message', (topic, payload) => {
@@ -138,6 +139,8 @@ function listen(device) {
       if (msg.payment_id) seen.add(msg.payment_id);
       console.log(`\x1b[32m🔊 ${msg.message}\x1b[0m`);
       speak(msg.message);
+      // Audio-played ack: closes the latency loop (played_at + per-network SLO metrics).
+      client.publish(device.topics.heartbeat, JSON.stringify({ status: 'played', payment_id: msg.payment_id, battery: 100, network_type: NETWORK, signal: -58 }), { qos: 1 });
     } else if (topic === device.topics.commands) {
       if (msg.event_type === 'TEST_ANNOUNCEMENT') speak('Test announcement. Soundbox is working.');
       console.log('command:', JSON.stringify(msg));

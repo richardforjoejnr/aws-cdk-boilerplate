@@ -91,6 +91,38 @@
       </div>
     </div>
 
+    <div id="obs-card" class="card">
+      <h2>📊 Observability <button id="obs-refresh" class="small secondary" style="float:right">Refresh</button></h2>
+      <div id="obs-kpis" style="display:flex; gap:.6rem; flex-wrap:wrap; margin:.5rem 0"></div>
+      <div id="obs-daily" style="margin:.6rem 0"></div>
+      <div style="display:flex; gap:1rem; flex-wrap:wrap">
+        <div style="flex:1; min-width:220px"><div class="dim" style="margin:.4rem 0">Top stores by volume</div><div id="obs-top-merchants"></div></div>
+        <div style="flex:1; min-width:220px"><div class="dim" style="margin:.4rem 0">Top soundboxes by volume</div><div id="obs-top-devices"></div></div>
+      </div>
+      <div class="dim" style="margin:.8rem 0 .3rem">Latency — how fast the vendor hears the money (target &lt; 5s webhook → audio)</div>
+      <div id="obs-latency-kpis" style="display:flex; gap:.6rem; flex-wrap:wrap; margin:.5rem 0"></div>
+      <div style="display:flex; gap:1rem; flex-wrap:wrap">
+        <div style="flex:1; min-width:240px"><div class="dim" style="margin:.4rem 0">Where the time goes (p50 / p95)</div><div id="obs-latency-segments"></div></div>
+        <div style="flex:1; min-width:240px"><div class="dim" style="margin:.4rem 0">Wi-Fi vs mobile data</div><div id="obs-latency-networks"></div></div>
+      </div>
+      <div class="dim" style="margin:.8rem 0 .3rem">Recent payments — click trace to see any payment's full lifecycle</div>
+      <div id="obs-recent"></div>
+      <div class="dim" style="margin:.8rem 0 .3rem">Fleet &amp; network</div>
+      <div id="obs-fleet"></div>
+      <div class="dim" style="margin:.8rem 0 .3rem">Battery performance — drain per device and per network (24h)</div>
+      <div id="obs-battery"></div>
+      <div class="dim" style="margin:.8rem 0 .3rem">MQTT auth attempts — username/password connections (24h)</div>
+      <div id="obs-auth"></div>
+      <div class="dim" style="margin:.8rem 0 .3rem">Recent failures &amp; dead-letter queues</div>
+      <div id="obs-failures"></div>
+      <div class="dim" style="margin:.8rem 0 .3rem">Flow trace — paste a payment id to see the whole lifecycle</div>
+      <div class="row">
+        <input id="obs-trace-id" placeholder="pay_..." style="flex:1" />
+        <button id="obs-trace-btn" class="small">Trace</button>
+      </div>
+      <div id="obs-trace" style="margin-top:.5rem"></div>
+    </div>
+
   <div id="issue-card" class="card" style="display:none">
     <h2>🐞 Report an issue</h2>
     <label>Title</label>
@@ -509,10 +541,229 @@ document.getElementById('issue-submit').addEventListener('click', async () => {
   }
 });
 
+// ── Observability panel ──────────────────────────────────────────────────────
+const pesewas = (p) => `GHS ${(Number(p || 0) / 100).toFixed(2)}`;
+const kpi = (label, value, tone = '') =>
+  `<div class="card" style="flex:1; min-width:130px; margin:0; padding:.55rem .8rem"><div class="dim" style="font-size:.7rem">${label}</div><div class="chip ${tone}" style="font-size:1.05rem; margin-top:.3rem">${value}</div></div>`;
+const chip = (l, v, tone = '') => `<span class="chip ${tone}">${l}: ${v}</span>`;
+
+async function loadObservability() {
+  const [ov, fleet, fail, lat, bat, auth] = await Promise.all([
+    api('/observability/overview?days=7'),
+    api('/observability/fleet'),
+    api('/observability/failures'),
+    api('/observability/latency?days=7'),
+    api('/observability/battery?hours=24'),
+    api('/observability/auth?hours=24'),
+  ]);
+  if (ov.ok) renderOverview(ov.body);
+  if (fleet.ok) renderFleet(fleet.body);
+  if (fail.ok) renderFailures(fail.body);
+  if (lat.ok) renderLatency(lat.body);
+  if (bat.ok) renderBattery(bat.body);
+  if (auth.ok) renderAuth(auth.body);
+}
+
+function renderAuth(a) {
+  const s = a.summary || {};
+  const head = `<div style="margin-bottom:.4rem; display:flex; gap:.4rem; flex-wrap:wrap">${chip('Allowed', s.allowed ?? 0, 'success')} ${chip('Denied', s.denied ?? 0, s.denied ? 'danger' : '')}</div>`;
+  const rows = (a.attempts || [])
+    .map(
+      (x) => `<div style="display:flex; gap:.5rem; align-items:center; padding:.12rem 0">
+      <span class="chip ${x.outcome === 'ALLOW' ? 'success' : 'danger'}" style="font-size:.6rem">${x.outcome}</span>
+      <span style="font-size:.8rem">${x.username || '?'}</span>
+      <span class="dim" style="font-size:.7rem">${x.client_id && x.client_id !== x.username ? 'client ' + x.client_id + ' · ' : ''}${x.reason || ''} ${new Date(x.ts).toLocaleString()}</span>
+    </div>`
+    )
+    .join('') || '<span class="dim">No username/password connection attempts yet.</span>';
+  $('obs-auth').innerHTML = head + rows;
+}
+
+function renderBattery(b) {
+  const batTone = (v) => (v == null ? '' : v > 50 ? 'success' : v > 20 ? 'warning' : 'danger');
+  const nets = Object.entries(b.by_network || {})
+    .map(([k, v]) => chip(k, `${v.avg_drain_pct_per_hour}%/hr avg (${v.devices} device${v.devices === 1 ? '' : 's'})`, 'accent'))
+    .join(' ');
+  const spark = (series) => {
+    if (!(series || []).length) return '';
+    return `<span style="display:inline-flex; align-items:flex-end; gap:1px; height:16px">${series
+      .map((s) => `<span title="${new Date(s.ts).toLocaleTimeString()} · ${s.battery}%" style="width:3px; height:${Math.max(8, s.battery)}%; min-height:1px; background:var(--accent); border-radius:1px"></span>`)
+      .join('')}</span>`;
+  };
+  const rows = (b.devices || [])
+    .map(
+      (d) => `<div style="display:flex; gap:.5rem; align-items:center; padding:.15rem 0">
+      <span style="font-size:.8rem">${d.serial_number}</span>
+      <span class="chip ${batTone(d.current_battery)}" style="font-size:.6rem">${d.current_battery != null ? d.current_battery + '%' : 'no data'}</span>
+      <span class="dim" style="font-size:.7rem">${d.network_type || '—'} · ${d.drain_pct_per_hour != null ? (d.drain_pct_per_hour >= 0 ? '−' : '+') + Math.abs(d.drain_pct_per_hour) + '%/hr' : 'drain n/a'}</span>
+      ${spark(d.series)}
+    </div>`
+    )
+    .join('') || '<span class="dim">No battery telemetry yet — devices report battery in heartbeats.</span>';
+  $('obs-battery').innerHTML =
+    (nets ? `<div style="margin-bottom:.4rem; display:flex; gap:.4rem; flex-wrap:wrap">${nets}</div>` : '') + rows;
+}
+
+const fmtMs = (ms) => (ms == null ? '—' : ms >= 1000 ? (ms / 1000).toFixed(1) + 's' : ms + 'ms');
+const fmtRate = (r) => (r == null ? '—' : (r * 100).toFixed(0) + '%');
+
+function renderLatency(l) {
+  const t = l.totals || {};
+  const seg = l.segments || {};
+  const slo = seg.webhook_to_audio || {};
+  const sloTone = t.under_target_rate == null ? '' : t.under_target_rate >= 0.95 ? 'success' : t.under_target_rate >= 0.8 ? 'warning' : 'danger';
+  $('obs-latency-kpis').innerHTML =
+    kpi('Webhook → audio p50', fmtMs(slo.p50_ms), 'accent') +
+    kpi('Webhook → audio p95', fmtMs(slo.p95_ms), slo.p95_ms != null && slo.p95_ms < l.target_ms ? 'success' : 'warning') +
+    kpi(`Under ${fmtMs(l.target_ms)} target`, fmtRate(t.under_target_rate), sloTone) +
+    kpi('Audio delivery rate', `${fmtRate(t.delivery_rate)} (${t.played ?? 0}/${t.announced ?? 0})`, t.delivery_rate == null ? '' : t.delivery_rate >= 0.95 ? 'success' : 'danger');
+
+  const segments = [
+    ['Initiated → confirmed (provider)', seg.initiated_to_confirmed],
+    ['Confirmed → announced (broker)', seg.confirmed_to_announced],
+    ['Announced → played (device)', seg.announced_to_played],
+    ['End to end (initiated → played)', seg.end_to_end],
+  ];
+  const maxP95 = Math.max(1, ...segments.map(([, s]) => s?.p95_ms || 0));
+  $('obs-latency-segments').innerHTML = segments
+    .map(([label, s]) => {
+      const w = Math.round(((s?.p50_ms || 0) / maxP95) * 100);
+      return `<div style="margin:.3rem 0">
+        <div style="display:flex; justify-content:space-between"><span class="dim" style="font-size:.7rem">${label}</span><span class="dim" style="font-size:.7rem">${fmtMs(s?.p50_ms)} / ${fmtMs(s?.p95_ms)}</span></div>
+        <div style="background:var(--surface-overlay); border-radius:4px; overflow:hidden"><div style="width:${Math.max(w, 2)}%; background:var(--accent); height:9px"></div></div>
+      </div>`;
+    })
+    .join('');
+
+  const nets = Object.entries(l.by_network || {}).sort(([, a], [, b]) => (b.played || 0) - (a.played || 0));
+  $('obs-latency-networks').innerHTML = nets.length
+    ? nets
+        .map(
+          ([name, n]) => `<div style="display:flex; gap:.5rem; align-items:center; padding:.18rem 0">
+        <span class="chip ${name === 'WIFI' ? 'accent' : 'warning'}" style="font-size:.62rem; min-width:44px; text-align:center">${name}</span>
+        <span class="dim" style="font-size:.7rem">${n.played} played</span>
+        <span class="dim" style="font-size:.7rem">p50 ${fmtMs(n.p50_webhook_to_audio_ms)} · p95 ${fmtMs(n.p95_webhook_to_audio_ms)}</span>
+        <span class="chip ${n.under_target_rate == null ? '' : n.under_target_rate >= 0.95 ? 'success' : n.under_target_rate >= 0.8 ? 'warning' : 'danger'}" style="font-size:.62rem">${fmtRate(n.under_target_rate)} &lt; ${fmtMs(l.target_ms)}</span>
+      </div>`
+        )
+        .join('')
+    : '<span class="dim">No audio confirmations yet — devices report network + played acks on each announcement.</span>';
+
+  $('obs-recent').innerHTML = (l.recent || []).length
+    ? l.recent
+        .map(
+          (p) => `<div style="display:flex; gap:.5rem; align-items:center; padding:.15rem 0">
+        <span class="dim" style="font-size:.7rem; font-family:monospace">${p.payment_id}</span>
+        <span class="dim" style="font-size:.7rem">${pesewas(p.amount_pesewas)}</span>
+        <span class="dim" style="font-size:.7rem">${p.created_at ? new Date(p.created_at).toLocaleTimeString() : ''}</span>
+        ${p.webhook_to_audio_ms != null ? `<span class="chip ${p.webhook_to_audio_ms < l.target_ms ? 'success' : 'warning'}" style="font-size:.6rem">🔊 ${fmtMs(p.webhook_to_audio_ms)}${p.network_type ? ' · ' + p.network_type : ''}</span>` : '<span class="chip" style="font-size:.6rem">no audio ack</span>'}
+        <button class="small secondary" onclick="obsTrace('${p.payment_id}')">trace</button>
+      </div>`
+        )
+        .join('')
+    : '<span class="dim">No successful payments in the window yet.</span>';
+}
+
+function renderOverview(o) {
+  const t = o.totals || {};
+  const rate = o.success_rate != null ? (o.success_rate * 100).toFixed(1) + '%' : '—';
+  $('obs-kpis').innerHTML =
+    kpi('Transactions (7d)', t.transactions ?? 0, 'accent') +
+    kpi('Volume (7d)', pesewas(t.volume_pesewas), 'success') +
+    kpi('Success rate', rate, t.failed ? 'warning' : 'success') +
+    kpi('Failed / expired', `${t.failed ?? 0} / ${t.expired ?? 0}`, t.failed ? 'danger' : '');
+  const daily = o.daily || [];
+  const max = Math.max(1, ...daily.map((d) => d.volume_pesewas));
+  $('obs-daily').innerHTML =
+    daily
+      .map((d) => {
+        const w = Math.round((d.volume_pesewas / max) * 100);
+        return `<div style="display:flex; align-items:center; gap:.5rem; margin:.15rem 0">
+          <span class="dim" style="width:52px; font-size:.7rem">${d.date.slice(5)}</span>
+          <div style="flex:1; background:var(--surface-overlay); border-radius:4px; overflow:hidden"><div style="width:${w}%; background:var(--accent); height:13px"></div></div>
+          <span class="dim" style="width:150px; text-align:right; font-size:.7rem">${pesewas(d.volume_pesewas)} · ${d.transactions}tx</span>
+        </div>`;
+      })
+      .join('') || '<span class="dim">No transactions yet.</span>';
+  const rows = (arr) =>
+    (arr || []).length
+      ? arr
+          .map(
+            (m) =>
+              `<div style="display:flex; justify-content:space-between; padding:.2rem 0"><span style="font-size:.8rem">${m.id}</span><span class="dim" style="font-size:.72rem">${pesewas(m.volume_pesewas)} · ${m.transactions}tx</span></div>`
+          )
+          .join('')
+      : '<span class="dim">—</span>';
+  $('obs-top-merchants').innerHTML = rows(o.top_merchants);
+  $('obs-top-devices').innerHTML = rows(o.top_soundboxes);
+}
+
+function renderFleet(f) {
+  const s = f.summary || {};
+  const nets = Object.entries(s.networks || {})
+    .map(([k, v]) => chip(k, v, 'accent'))
+    .join(' ') || '<span class="dim">no telemetry yet</span>';
+  $('obs-fleet').innerHTML =
+    `<div style="margin-bottom:.4rem; display:flex; gap:.4rem; flex-wrap:wrap">${chip('Online', `${s.online ?? 0}/${s.total ?? 0}`, s.online ? 'success' : '')} ${nets}</div>` +
+    (f.devices || [])
+      .map(
+        (d) => `<div style="display:flex; gap:.5rem; align-items:center; padding:.15rem 0">
+        <span class="chip ${d.online ? 'success' : 'danger'}" style="font-size:.6rem">${d.online ? 'online' : 'offline'}</span>
+        <span style="font-size:.8rem">${d.serial_number}</span>
+        <span class="dim" style="font-size:.7rem">${d.network_type || '—'} · seen ${d.last_seen_at ? new Date(d.last_seen_at).toLocaleTimeString() : 'never'}</span>
+      </div>`
+      )
+      .join('');
+}
+
+function renderFailures(f) {
+  const dlq = Object.entries(f.dlq_depths || {})
+    .map(([k, v]) => chip(k, v < 0 ? '?' : v, v > 0 ? 'danger' : v < 0 ? 'dim' : 'success'))
+    .join(' ');
+  const rows =
+    (f.recent_failures || [])
+      .map(
+        (x) => `<div style="display:flex; gap:.5rem; align-items:center; padding:.15rem 0">
+        <span class="chip ${x.status === 'EXPIRED' ? 'warning' : 'danger'}" style="font-size:.6rem">${x.status}</span>
+        <span class="dim" style="font-size:.7rem">${x.payment_id}</span>
+        <span class="dim" style="font-size:.7rem">${x.reason || ''}</span>
+        <button class="small secondary" onclick="obsTrace('${x.payment_id}')">trace</button>
+      </div>`
+      )
+      .join('') || '<span class="dim">No recent failures 🎉</span>';
+  $('obs-failures').innerHTML = `<div style="margin-bottom:.4rem; display:flex; gap:.4rem; flex-wrap:wrap">${dlq}</div>${rows}`;
+}
+
+window.obsTrace = async (pid) => {
+  $('obs-trace-id').value = pid;
+  const res = await api('/observability/trace/' + encodeURIComponent(pid));
+  if (!res.ok) {
+    $('obs-trace').innerHTML = `<span class="chip danger">${res.body?.error?.message || 'not found'}</span>`;
+    return;
+  }
+  const t = res.body;
+  $('obs-trace').innerHTML =
+    `<div class="dim" style="font-size:.72rem; margin-bottom:.3rem">${t.status} · ${pesewas(t.amount_pesewas)} · total ${t.total_ms}ms</div>` +
+    (t.timeline || [])
+      .map(
+        (e) => `<div style="display:flex; gap:.5rem; align-items:center; padding:.12rem 0">
+        <span class="chip accent" style="font-size:.6rem">${e.event_type}</span>
+        <span class="dim" style="font-size:.7rem">${new Date(e.ts).toLocaleTimeString()}</span>
+        ${e.delta_ms ? `<span class="dim" style="font-size:.7rem">+${e.delta_ms}ms</span>` : ''}
+      </div>`
+      )
+      .join('');
+};
+$('obs-refresh').addEventListener('click', loadObservability);
+$('obs-trace-btn').addEventListener('click', () => {
+  const v = $('obs-trace-id').value.trim();
+  if (v) obsTrace(v);
+});
+
 async function start() {
   if (!KEY) return;
   show('key-card', false); show('portal');
-  await loadMerchants(); loadDevices(); loadCosts();
+  await loadMerchants(); loadDevices(); loadCosts(); loadObservability();
   if (devicePollTimer) clearInterval(devicePollTimer);
   devicePollTimer = setInterval(loadDevices, 15000); // keep pairing state fresh (device list read ~ $0.000001)
 }

@@ -1,4 +1,5 @@
 import type { APIGatewayProxyResult } from 'aws-lambda';
+import { log, emitMetrics } from './observability.js';
 
 /** API error model per concept.md Appendix A. CORS handled by API Gateway, never here. */
 export function ok(body: unknown, statusCode = 200): APIGatewayProxyResult {
@@ -53,8 +54,10 @@ export function requireString(value: unknown, field: string): string {
   return value.trim();
 }
 
-export function handleError(err: unknown): APIGatewayProxyResult {
+export function handleError(err: unknown, context: Record<string, unknown> = {}): APIGatewayProxyResult {
   if (err instanceof BadRequestError) return apiError(400, err.code, err.message);
-  console.error('Unhandled error', err);
+  const e = err as Error;
+  log('error', 'unhandled_error', { ...context, error_code: 'INTERNAL_ERROR', error: e?.message, stack: e?.stack });
+  emitMetrics([{ name: 'ErrorCount', value: 1, unit: 'Count' }], { error_code: 'INTERNAL_ERROR' }, { ...context });
   return apiError(500, 'INTERNAL_ERROR', 'Internal server error');
 }

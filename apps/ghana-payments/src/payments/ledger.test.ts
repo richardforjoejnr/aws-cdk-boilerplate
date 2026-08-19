@@ -7,7 +7,7 @@ import {
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { ddb } from '../shared/clients.js';
-import { confirmPayment, expirePayment, markCreditedBack } from './ledger.js';
+import { confirmPayment, expirePayment, markCreditedBack, markPlayed } from './ledger.js';
 
 const ddbMock = mockClient(ddb as unknown as DynamoDBDocumentClient);
 
@@ -86,5 +86,43 @@ describe('markCreditedBack (exactly-once credit-back)', () => {
       .on(UpdateCommand)
       .rejects(Object.assign(new Error('cond'), { name: 'ConditionalCheckFailedException' }));
     expect(await markCreditedBack('pay_1')).toBe(false);
+  });
+});
+
+describe('markPlayed (device audio confirmation, exactly-once)', () => {
+  const meta = {
+    payment_id: 'pay_1',
+    sk: 'META',
+    status: 'SUCCESS',
+    created_at: '2026-08-06T10:00:00.000Z',
+    confirmed_at: '2026-08-06T10:00:02.000Z',
+    announced_at: '2026-08-06T10:00:02.500Z',
+    played_at: '2026-08-06T10:00:03.500Z',
+    played_network_type: '4G',
+  };
+
+  it('sets played_at once, appends DEVICE_PLAYED, and returns the updated record', async () => {
+    ddbMock.on(UpdateCommand).resolves({ Attributes: meta });
+    ddbMock.on(PutCommand).resolves({});
+    const record = await markPlayed('pay_1', { deviceId: 'dev_1', networkType: '4G' });
+    expect(record).toMatchObject({ played_at: meta.played_at });
+
+    const upd = ddbMock.commandCalls(UpdateCommand)[0].args[0].input;
+    expect(upd.ConditionExpression).toContain('attribute_not_exists(played_at)');
+    expect(upd.ConditionExpression).toContain('attribute_exists(announced_at)');
+    expect(upd.ReturnValues).toBe('ALL_NEW');
+
+    const evt = ddbMock.commandCalls(PutCommand)[0].args[0].input.Item as Record<string, unknown>;
+    expect(evt.event_type).toBe('DEVICE_PLAYED');
+    expect(evt.device_id).toBe('dev_1');
+    expect(evt.network_type).toBe('4G');
+  });
+
+  it('returns undefined on a duplicate ack (played_at already set)', async () => {
+    ddbMock
+      .on(UpdateCommand)
+      .rejects(Object.assign(new Error('cond'), { name: 'ConditionalCheckFailedException' }));
+    expect(await markPlayed('pay_1', { deviceId: 'dev_1' })).toBeUndefined();
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
   });
 });

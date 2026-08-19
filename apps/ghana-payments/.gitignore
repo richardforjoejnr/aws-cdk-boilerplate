@@ -4,3 +4,5 @@ cdk.out/
 *.tsbuildinfo
 *.js.map
 device-bundles/
+vendor-test-bundle/
+claim-bundle/

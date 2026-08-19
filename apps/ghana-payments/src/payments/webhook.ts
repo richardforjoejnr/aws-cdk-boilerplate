@@ -85,9 +85,12 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
   }
 
   // 3. Publish exactly once, after the durable write
-  await publishEvent(
-    body.status === 'SUCCESSFUL' ? 'payment.confirmed' : 'payment.failed',
-    { ...paymentEvent, merchant_id: result.payment.merchant_id, amount: result.payment.amount_pesewas }
-  );
+  await publishEvent(body.status === 'SUCCESSFUL' ? 'payment.confirmed' : 'payment.failed', {
+    ...paymentEvent,
+    merchant_id: result.payment.merchant_id,
+    amount: result.payment.amount_pesewas,
+    created_at: result.payment.created_at, // lets the audit-writer compute end-to-end latency
+    ...(body.reason ? { reason: body.reason } : {}),
+  });
   return ok({ received: true });
 };

@@ -25,6 +25,9 @@ export interface PaymentRecord {
   created_at: string;
   confirmed_at?: string;
   announced_at?: string;
+  played_at?: string;
+  played_device_id?: string;
+  played_network_type?: string;
   credited_back_at?: string;
   reason?: string;
 }
@@ -209,6 +212,47 @@ export async function markAnnounced(paymentId: string, deviceId: string): Promis
     if ((err as { name?: string }).name === 'ConditionalCheckFailedException') return false;
     throw err;
   }
+}
+
+/**
+ * Device audio confirmation (exactly-once, same pattern as announce-once). Records
+ * when the soundbox actually played the announcement — the end of the payment's
+ * user-visible journey and the basis of the <5s webhook->audio SLO. Requires the
+ * payment to have been announced; duplicate acks return undefined.
+ */
+export async function markPlayed(
+  paymentId: string,
+  input: { deviceId: string; networkType?: string }
+): Promise<PaymentRecord | undefined> {
+  let updated: PaymentRecord;
+  try {
+    const res = await ddb.send(
+      new UpdateCommand({
+        TableName: TABLE(),
+        Key: { payment_id: paymentId, sk: 'META' },
+        UpdateExpression:
+          'SET played_at = :now, played_device_id = :device' +
+          (input.networkType ? ', played_network_type = :net' : ''),
+        ConditionExpression:
+          'attribute_exists(payment_id) AND attribute_exists(announced_at) AND attribute_not_exists(played_at)',
+        ExpressionAttributeValues: {
+          ':now': new Date().toISOString(),
+          ':device': input.deviceId,
+          ...(input.networkType ? { ':net': input.networkType } : {}),
+        },
+        ReturnValues: 'ALL_NEW',
+      })
+    );
+    updated = res.Attributes as PaymentRecord;
+  } catch (err: unknown) {
+    if ((err as { name?: string }).name === 'ConditionalCheckFailedException') return undefined;
+    throw err;
+  }
+  await appendEvent(paymentId, 'DEVICE_PLAYED', {
+    device_id: input.deviceId,
+    ...(input.networkType ? { network_type: input.networkType } : {}),
+  });
+  return updated;
 }
 
 /** Exactly-once guard for wallet credit-back (same pattern as announce-once, ADR-4b). */

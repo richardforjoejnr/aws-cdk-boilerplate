@@ -17,6 +17,10 @@ if (!dir) {
   process.exit(1);
 }
 const cfg = JSON.parse(readFileSync(join(dir, 'device.json'), 'utf8'));
+// Reported in heartbeats for the observability fleet view (real hardware reads the
+// modem's RAT; here it's a flag: --network=4g|3g|wifi, default wifi).
+const NETWORK = (process.argv.find((a) => a.startsWith('--network=')) || '').split('=')[1]?.toUpperCase() || 'WIFI';
+const hb = (extra = {}) => JSON.stringify({ status: 'online', battery: 100, network_type: NETWORK, signal: -58, ...extra });
 
 function speak(text) {
   const tries =
@@ -49,7 +53,7 @@ client.on('connect', () => {
   client.subscribe([cfg.topics.payments, cfg.topics.commands], { qos: 1 }, (err) => {
     if (err) return console.error('[soundbox] subscribe failed:', err.message);
     console.log(`[soundbox] listening on ${cfg.topics.payments}`);
-    client.publish(cfg.topics.heartbeat, JSON.stringify({ status: 'online', battery: 100 }), { qos: 1 });
+    client.publish(cfg.topics.heartbeat, hb(), { qos: 1 });
   });
 });
 
@@ -64,7 +68,7 @@ client.on('message', (topic, payload) => {
     if (msg.payment_id) seen.add(msg.payment_id);
     console.log(`[soundbox] 🔊 ${msg.message}`);
     speak(msg.message);
-    client.publish(cfg.topics.heartbeat, JSON.stringify({ status: 'played', payment_id: msg.payment_id }), { qos: 1 });
+    client.publish(cfg.topics.heartbeat, hb({ status: 'played', payment_id: msg.payment_id }), { qos: 1 });
   } else if (topic === cfg.topics.commands) {
     if (msg.event_type === 'TEST_ANNOUNCEMENT') speak('Test announcement. Soundbox is working.');
     console.log('[soundbox] command:', JSON.stringify(msg));
@@ -76,6 +80,6 @@ client.on('close', () => console.log('[soundbox] disconnected — retrying'));
 
 setInterval(() => {
   if (client.connected) {
-    client.publish(cfg.topics.heartbeat, JSON.stringify({ status: 'online', battery: 100 }), { qos: 1 });
+    client.publish(cfg.topics.heartbeat, hb(), { qos: 1 });
   }
 }, 60_000);

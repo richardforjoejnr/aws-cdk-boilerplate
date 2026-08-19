@@ -58,6 +58,8 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
       WALLETS_TABLE: foundation.walletsTable.tableName,
       AUDIT_TABLE: foundation.auditTable.tableName,
       DEVICES_TABLE: foundation.devicesTable.tableName,
+      METRICS_TABLE: foundation.metricsTable.tableName,
+      TELEMETRY_TABLE: foundation.telemetryTable.tableName,
       ACCOUNT_ID: this.account,
       EVENT_BUS_NAME: foundation.eventBus.eventBusName,
       WEBHOOK_INBOX_BUCKET: foundation.webhookInbox.bucketName,
@@ -181,6 +183,7 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
 
     const auditWriter = make('audit-writer', 'events/audit-writer.ts');
     foundation.auditTable.grantWriteData(auditWriter);
+    foundation.metricsTable.grantWriteData(auditWriter); // usage rollups
     const auditDlq = new sqs.Queue(this, 'AuditDlq', { queueName: `${stage}-ghana-audit-dlq` });
     new events.Rule(this, 'AuditRule', {
       ruleName: `${stage}-ghana-audit-all`,
@@ -346,10 +349,42 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     v1.addResource('fleet').addResource('serials').addMethod('POST', integrate(fleetManufacture), adminOpts);
     v1.addResource('soundbox').addResource('config').addMethod('GET', integrate(soundboxConfig));
 
+    // --- Observability (admin): usage overview, flow trace, failures, fleet ---
+    const obsOverview = make('obs-overview', 'observability/handlers.ts', 'overviewHandler');
+    const obsTrace = make('obs-trace', 'observability/handlers.ts', 'traceHandler');
+    const obsFailures = make('obs-failures', 'observability/handlers.ts', 'failuresHandler');
+    const obsFleet = make('obs-fleet', 'observability/handlers.ts', 'fleetHandler');
+    const obsLatency = make('obs-latency', 'observability/handlers.ts', 'latencyHandler');
+    const obsBattery = make('obs-battery', 'observability/handlers.ts', 'batteryHandler');
+    const obsAuth = make('obs-auth', 'observability/handlers.ts', 'authAttemptsHandler');
+    foundation.telemetryTable.grantReadData(obsAuth);
+    foundation.metricsTable.grantReadData(obsOverview);
+    foundation.paymentsTable.grantReadData(obsTrace);
+    foundation.paymentsTable.grantReadData(obsFailures);
+    foundation.devicesTable.grantReadData(obsFleet);
+    foundation.paymentsTable.grantReadData(obsLatency);
+    foundation.devicesTable.grantReadData(obsBattery);
+    foundation.telemetryTable.grantReadData(obsBattery);
+    obsFailures.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['sqs:GetQueueAttributes'],
+        resources: [`arn:aws:sqs:${this.region}:${this.account}:${stage}-ghana-*-dlq`],
+      })
+    );
+    const obs = v1.addResource('observability');
+    obs.addResource('overview').addMethod('GET', integrate(obsOverview), adminOpts);
+    obs.addResource('failures').addMethod('GET', integrate(obsFailures), adminOpts);
+    obs.addResource('fleet').addMethod('GET', integrate(obsFleet), adminOpts);
+    obs.addResource('latency').addMethod('GET', integrate(obsLatency), adminOpts);
+    obs.addResource('battery').addMethod('GET', integrate(obsBattery), adminOpts);
+    obs.addResource('auth').addMethod('GET', integrate(obsAuth), adminOpts);
+    obs.addResource('trace').addResource('{payment_id}').addMethod('GET', integrate(obsTrace), adminOpts);
+
     // Announcer: payment.confirmed -> announce-once guard -> per-device MQTT publish
     const announcer = make('device-announcer', 'devices/announcer.ts');
     foundation.devicesTable.grantReadData(announcer);
     foundation.paymentsTable.grantReadWriteData(announcer);
+    foundation.metricsTable.grantWriteData(announcer); // per-device usage rollups
     announcer.addToRolePolicy(iotPublish);
     announcer.addToRolePolicy(iotDescribe);
     const announcerDlq = new sqs.Queue(this, 'AnnouncerDlq', {
@@ -394,9 +429,31 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     );
     v1.addResource('costs').addMethod('GET', integrate(costs), adminOpts);
 
+    // MQTT username/password auth (custom authorizer) for hardware without
+    // X.509 client-cert support. Devices connect on 443 + ALPN "mqtt";
+    // credentials provisioned per device via POST /v1/devices/{id}/credentials.
+    const mqttAuthFn = make('mqtt-authorizer', 'devices/custom-authorizer.ts');
+    foundation.devicesTable.grantReadData(mqttAuthFn);
+    foundation.telemetryTable.grantWriteData(mqttAuthFn); // auth-attempt audit rows
+    const mqttAuthorizer = new iot.CfnAuthorizer(this, 'MqttAuthorizer', {
+      authorizerName: `${stage}-ghana-mqtt-auth`,
+      authorizerFunctionArn: mqttAuthFn.functionArn,
+      signingDisabled: true, // username/password flow — no token signature
+      status: 'ACTIVE',
+    });
+    mqttAuthFn.addPermission('IotAuthInvoke', {
+      principal: new iam.ServicePrincipal('iot.amazonaws.com'),
+      sourceArn: mqttAuthorizer.attrArn,
+    });
+    const deviceCredentials = make('device-credentials', 'devices/credentials.ts', 'credentialsHandler');
+    foundation.devicesTable.grantReadWriteData(deviceCredentials);
+    deviceById.addResource('credentials').addMethod('POST', integrate(deviceCredentials), adminOpts);
+
     // Heartbeats: devices/+/heartbeat -> device status/last-seen
     const statusUpdater = make('device-status-updater', 'devices/status-updater.ts');
     foundation.devicesTable.grantReadWriteData(statusUpdater);
+    foundation.telemetryTable.grantWriteData(statusUpdater); // connectivity time-series
+    foundation.paymentsTable.grantReadWriteData(statusUpdater); // played_at + DEVICE_PLAYED on audio acks
     const heartbeatRule = new iot.CfnTopicRule(this, 'HeartbeatRule', {
       ruleName: `${stage.replace(/-/g, '_')}_ghana_heartbeat`,
       topicRulePayload: {
