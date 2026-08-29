@@ -65,8 +65,14 @@ samconfig.toml
 .claude/settings.json
 # Real soundbox device credentials (created by scripts/setup-real-device.sh)
 device-bundles/
+# Fleet-provisioning claim bundle and vendor MQTT test bundle — both hold
+# unencrypted device private keys. Never commit these.
+claim-bundle/
+vendor-test-bundle/
+*.private.key
+*.cert.pem
 
 # The ghana-payments portals are plain static sites — their JS is SOURCE, not
 # build output, and must be committed (the blanket *.js above hid mqtt.min.js
 # from the PR-preview pipeline, breaking the deployed soundbox page)
-!packages/ghana-payments/web/**/*.js
+!apps/ghana-payments/web/**/*.js

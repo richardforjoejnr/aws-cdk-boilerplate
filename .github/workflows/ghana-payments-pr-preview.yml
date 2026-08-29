@@ -1,14 +1,21 @@
 name: Ghana Payments — PR Preview
 
 on:
+  # NO `branches:` filter. It applies to the PR's *base* branch, so a stacked PR
+  # (or one retargeted after opening) never fires `closed` and its preview
+  # environment leaks forever — see PR #26, which billed KMS for 10 days after
+  # merging. Deploy is gated on the base branch by an `if:` on the job instead,
+  # so only `closed` gained reach.
   pull_request:
     types: [opened, synchronize, reopened, closed]
-    branches:
-      - main
-      - develop
     paths:
       - 'apps/ghana-payments/**'
       - '.github/workflows/ghana-payments-*.yml'
+  # Backstop: catches previews the `closed` event missed for any reason
+  # (paths filter, cancelled run, failed destroy, manual deploy).
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
 
 permissions:
   id-token: write
@@ -27,7 +34,9 @@ env:
 jobs:
   deploy-preview:
     name: Deploy Ghana Payments preview
-    if: github.event.action != 'closed'
+    if: >-
+      github.event_name == 'pull_request' && github.event.action != 'closed'
+      && (github.base_ref == 'main' || github.base_ref == 'develop')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -106,10 +115,17 @@ jobs:
 
   destroy-preview:
     name: Destroy Ghana Payments preview
-    if: github.event.action == 'closed'
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
     runs-on: ubuntu-latest
     steps:
+      # Pin to the base branch. The default ref for a closed PR is
+      # refs/pull/<n>/merge, which GitHub garbage-collects soon after the merge —
+      # a bare checkout here can fail with "couldn't find remote ref" and skip the
+      # teardown entirely. The base branch always exists, and destroy.sh reads the
+      # deployed stack list from CloudFormation, so it does not need the PR's code.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -142,3 +158,61 @@ jobs:
               owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number,
               body: '🗑️ Ghana Payments preview environment `pr-' + context.issue.number + '` destroyed and verified clean.',
             });
+
+  reap-orphans:
+    name: Reap orphaned Ghana Payments previews
+    # Daily backstop. The `closed` event is the primary cleanup path; this catches
+    # anything it missed — PRs closed while the workflow was disabled, destroy runs
+    # that failed halfway, previews deployed by hand. Destroying a stage whose PR is
+    # still open is the one thing it must never do, so it only acts on PRs GitHub
+    # reports as closed/merged, and skips on any API error.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Make scripts executable
+        run: chmod +x apps/ghana-payments/scripts/*.sh
+
+      - name: Find and destroy previews whose PR is closed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          STAGES=$(aws cloudformation list-stacks \
+            --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE UPDATE_ROLLBACK_COMPLETE DELETE_FAILED \
+            --query "StackSummaries[?ends_with(StackName,'-ghana-payments-foundation')].StackName" \
+            --output text | tr '\t' '\n' | sed -n 's/^\(pr-[0-9]*\)-ghana-payments-foundation$/\1/p' | sort -u)
+
+          [ -n "$STAGES" ] || { echo "No preview environments deployed."; exit 0; }
+          echo "Deployed previews: $STAGES"
+
+          REAPED=0
+          for STAGE in $STAGES; do
+            PR="${STAGE#pr-}"
+            STATE=$(gh pr view "$PR" --json state --jq .state 2>/dev/null || echo "UNKNOWN")
+            case "$STATE" in
+              OPEN)
+                echo "::notice::$STAGE — PR #$PR still open, keeping." ;;
+              CLOSED|MERGED)
+                echo "::warning::$STAGE — PR #$PR is $STATE but the preview is still deployed. Destroying."
+                (cd apps/ghana-payments && echo "$STAGE" | ./scripts/destroy.sh "$STAGE")
+                REAPED=$((REAPED + 1)) ;;
+              *)
+                echo "::warning::$STAGE — could not read PR #$PR state ('$STATE'). Skipping, will retry tomorrow." ;;
+            esac
+          done
+          echo "Reaped $REAPED orphaned preview environment(s)."

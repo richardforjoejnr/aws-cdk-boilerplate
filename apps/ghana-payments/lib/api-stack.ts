@@ -153,9 +153,12 @@ export class GhanaPaymentsApiStack extends cdk.Stack {
     const sweeper = make('sweeper', 'payments/sweeper.ts');
     foundation.paymentsTable.grantReadWriteData(sweeper);
     foundation.eventBus.grantPutEventsTo(sweeper);
+    // Every sweep reads the payments table, which forces a KMS Decrypt against
+    // alias/aws/dynamodb. At rate(1 minute) that alone burns the 20k/month KMS
+    // free tier. 5 minutes matches sweeper/expiry-minutes in the foundation stack.
     new events.Rule(this, 'SweeperSchedule', {
       ruleName: `${stage}-ghana-sweeper`,
-      schedule: events.Schedule.rate(cdk.Duration.minutes(1)),
+      schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
       targets: [new targets.LambdaFunction(sweeper)],
     });
 
